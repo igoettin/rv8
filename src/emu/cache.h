@@ -58,7 +58,7 @@ namespace riscv {
 		UX      asid  : asid_bits;     /* Address Space Identifier */
 		pdid_t  pdid;                  /* Protection Domain Identifer */
 		u8*     data;                  /* Cache Data */
-                UX      cachedData;            /* Data this cache entry is storing. */
+                UX      va;                    /* Virtual Address XXX May not need*/
 
 		tagged_cache_entry() :
 			 vcln(vcln_limit),
@@ -101,9 +101,9 @@ namespace riscv {
                 typedef tagged_tlb_entry<PARAM> tlb_entry_t; 
 
                 //Variables for managing loads/stores. 
-                P & proc;
-                TLB & tlb;
-                MMU & mmu;
+                P proc;
+                TLB tlb;
+                MMU mmu;
                 
 		enum : UX {
 			size =                cache_size,
@@ -119,6 +119,8 @@ namespace riscv {
 
 			cache_line_mask =   ~((UX(1) << cache_line_shift) - 1),
 			num_entries_mask =    (UX(1) << num_entries_shift) - 1,
+                        data_index_mask =    ((UX(1) << (cache_line_shift + num_entries_shift))-1),
+                        cache_line_offset_mask = ((UX(1) << cache_line_shift)-1),
 
 			asid_bits =           PARAM::asid_bits,
 			ppn_bits =            PARAM::ppn_bits
@@ -164,17 +166,84 @@ namespace riscv {
 				cache_key[i] = cache_entry_t();
 			}
 		}
+                
+                //Go through the line and store the contents for each element in the cache line.
+                void store_line_into_mem(UX va){
+                    UX data_index = va & data_index_mask;
+                    UX cache_line_offset = va & cache_line_offset_mask;
+                    size_t indexForData; UX indexVA; UX offset;
+                    //Traverse the cache line forward. Store the data corresponding to each address into memory.
+                    for(indexForData = data_index, indexVA = va, offset = cache_line_offset  
+                        ; offset <= cache_line_offset_mask
+                        ; indexForData++, indexVA++, offset++)
+                        mmu.store(proc, indexVA, cache_data[indexForData]);
 
+                    //Traverse the cache line backward. Keep storing data.
+                    for(indexForData = data_index - 1, indexVA = va - 1, offset = cache_line_offset - 1  
+                        ; offset >= 0
+                        ; indexForData--, indexVA--, offset--)
+                        mmu.store(proc, indexVA, cache_data[indexForData]);
+                }
+                
+                
+                //Go through the line and load the contents for each element in the cache line from memory.
+                void load_line_from_mem(UX va){
+                    UX data_index = va & data_index_mask;
+                    UX cache_line_offset = va & cache_line_offset_mask;
+                    size_t indexForData; UX indexVA; UX offset;
+                    //Traverse the cache line forward. Load the data corresponding to each address into memory.
+                    for(indexForData = data_index, indexVA = va, offset = cache_line_offset  
+                        ; offset <= cache_line_offset_mask
+                        ; indexForData++, indexVA++, offset++)
+                        mmu.load(proc, indexVA, cache_data[indexForData]);
+
+                    //Traverse the cache line backward. Keep loading data.
+                    for(indexForData = data_index - 1, indexVA = va - 1, offset = cache_line_offset - 1  
+                        ; offset >= 0
+                        ; indexForData--, indexVA--, offset--)
+                        mmu.load(proc, indexVA, cache_data[indexForData]);
+                }
+
+                
+            
                 //Given a va, access the cache to find the corresponding cache_entry, if it exists.
-                u8 accessCache(UX va, u8 operation){
+                u8 access_cache(UX va, u8 operation){
                     cache_entry_t* ent = lookup_cache_line(0,0,va);
-                    //Found something, check TLB ppn with ent ppn.
+                    tagged_tlb_entry<PARAM>* tlb_ent = tlb.lookup(0,0,va);
+                    //If there is no mapping in the tlb, insert an entry into the TLB and
+                    //call the mmu to get the ppn for the va.
+                    if(!tlb_ent)
+                        tlb.insert(0,0,va,2,0xff,mmu.translate_addr(proc, va, tlb_ent),0);
                     if(ent){ 
-                        tlb_entry_t * tlb_ent = tlb.lookup(0,0,va);
-                        //if(ent->ppn == TLB.lookup(0,0,va)->ppn){ //ht
-                          //  return cacheData[
-                        
+                        //No hit found, need to evict a block and flush to memory.
+                        //TODO LRU Replacement and associativity
+                        if(ent->ppn != tlb_ent->ppn){ 
+                            //Store the line into mem if the op was a write
+                            if(operation == 'W')
+                                store_line_into_mem(ent->va);
+                            //Evict the line and load from memory for the new va
+                            *ent = cache_entry_t();
+                            load_line_from_mem(va);
+                            //set the va for the entry
+                            ent->va = va;
+                            ent->ppn = tlb_ent.ppn;
+                        }
+                        else
+                            printf("We got a hit!\n");
                     }
+                    //No entry, populate the cache entry
+                    else{
+                        //Store the line into mem if the op was a write
+                        if(operation == 'W')
+                            store_line_into_mem(ent->va);
+                        //Evict the line and load from memory for the new va
+                        *ent = cache_entry_t();
+                        load_line_from_mem(va);
+                        //set the va for the entry
+                        ent->va = va;
+                        ent->ppn = tlb_ent.ppn;
+                    }
+                    return cache_data[va & ((UX(1) << data_index_mask)-1)];
                 }
                 
 

@@ -102,6 +102,7 @@
 #include "assembler.h"
 #include "jit.h"
 
+
 using namespace riscv;
 
 int main(int argc, char *argv[])
@@ -169,8 +170,9 @@ int main(int argc, char *argv[])
         mmu.load(myProc, 0x20000, x);
         printf("x is %d\n",x);
 
-        //tagged_cache<param_rv32, 32, 1, 8, myProc, tlb_type, mmu> myCache;
-
+        typedef tagged_cache_rv64<4096,1,1024> myCache;
+        myCache cacheL;
+        cacheL.access_cache(0x30000, 'W'); 
 
 
 
