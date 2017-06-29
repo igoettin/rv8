@@ -1,3 +1,4 @@
+
 //
 //  cache.h
 //
@@ -57,6 +58,7 @@ namespace riscv {
 		UX      asid  : asid_bits;     /* Address Space Identifier */
 		pdid_t  pdid;                  /* Protection Domain Identifer */
 		u8*     data;                  /* Cache Data */
+                UX      cachedData;            /* Data this cache entry is storing. */
 
 		tagged_cache_entry() :
 			 vcln(vcln_limit),
@@ -85,17 +87,24 @@ namespace riscv {
 	 */
 
 	template <typename PARAM, const size_t cache_size, const size_t cache_ways, const size_t cache_line_size,
-		typename MEMORY = user_memory<typename PARAM::UX>>
+		typename MEMORY = user_memory<typename PARAM::UX>, typename P = processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>>,
+                typename TLB = tagged_tlb_rv64<128>, typename MMU = mmu_soft_rv64>
 	struct tagged_cache
 	{
 		static_assert(ispow2(cache_size), "cache_size must be a power of 2");
 		static_assert(ispow2(cache_ways), "cache_ways must be a power of 2");
 		static_assert(ispow2(cache_line_size), "cache_line_size must be a power of 2");
-
+                
 		typedef typename PARAM::UX UX;
 		typedef MEMORY memory_type;
 		typedef tagged_cache_entry<PARAM,cache_line_size> cache_entry_t;
+                typedef tagged_tlb_entry<PARAM> tlb_entry_t; 
 
+                //Variables for managing loads/stores. 
+                P & proc;
+                TLB & tlb;
+                MMU & mmu;
+                
 		enum : UX {
 			size =                cache_size,
 			line_size =           cache_line_size,
@@ -114,6 +123,9 @@ namespace riscv {
 			asid_bits =           PARAM::asid_bits,
 			ppn_bits =            PARAM::ppn_bits
 		};
+
+                
+
 
 		// TODO - map cache index and data into the machine address space with user_memory::add_segment
 
@@ -153,13 +165,27 @@ namespace riscv {
 			}
 		}
 
+                //Given a va, access the cache to find the corresponding cache_entry, if it exists.
+                u8 accessCache(UX va, u8 operation){
+                    cache_entry_t* ent = lookup_cache_line(0,0,va);
+                    //Found something, check TLB ppn with ent ppn.
+                    if(ent){ 
+                        tlb_entry_t * tlb_ent = tlb.lookup(0,0,va);
+                        //if(ent->ppn == TLB.lookup(0,0,va)->ppn){ //ht
+                          //  return cacheData[
+                        
+                    }
+                }
+                
+
 		// cache line is virtually indexed but physically tagged.
 		// caller has to check that the ppn of the cache line matches the TLB ppn.
-		cache_entry_t* lookup_cache_line(memory_type &mem, UX pdid, UX asid, UX va)
+		cache_entry_t* lookup_cache_line(UX pdid, UX asid, UX va)
 		{
 			UX vcln = va >> cache_line_shift;
 			UX entry = vcln & num_entries_mask;
-			cache_entry_t *ent = cache_key + (entry << num_ways_shift);
+                        //Removed entry << num_ways_shift here, may need to put back
+			cache_entry_t *ent = cache_key + entry;
 			for (size_t i = 0; i < num_ways; i++) {
 				if (ent->vcln == vcln && ent->pdid == pdid && ent->asid == asid) {
 					return ent;
@@ -183,6 +209,8 @@ namespace riscv {
 
 	};
 
+
+    
 	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size>
 	using tagged_cache_rv32 = tagged_cache<param_rv32,cache_size,cache_ways,cache_line_size>;
 

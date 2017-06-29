@@ -355,6 +355,11 @@ TEST_MMU_SRCS = $(SRC_DIR)/app/test-mmu.cc
 TEST_MMU_OBJS = $(call cxx_src_objs, $(TEST_MMU_SRCS))
 TEST_MMU_BIN =  $(BIN_DIR)/test-mmu
 
+#test-cache
+TEST_CACHE_SRCS = $(SRC_DIR)/app/test-cache.cc
+TEST_CACHE_OBJS = $(call cxx_src_objs, $(TEST_CACHE_SRCS))
+TEST_CACHE_BIN = $(BIN_DIR)/test-cache
+
 # test-mul
 TEST_MUL_SRCS = $(SRC_DIR)/app/test-mul.cc
 TEST_MUL_OBJS = $(call cxx_src_objs, $(TEST_MUL_SRCS))
@@ -415,7 +420,8 @@ ALL_CXX_SRCS = $(RV_ASM_SRCS) \
            $(TEST_MUL_SRCS) \
            $(TEST_OPERATORS_SRCS) \
            $(TEST_PRINTF_SRCS) \
-           $(TEST_RAND_SRCS)
+           $(TEST_RAND_SRCS) \
+           $(TEST_CACHE_SRCS)
 
 BINARIES = $(RV_META_BIN) \
            $(RV_BIN_BIN) \
@@ -430,7 +436,8 @@ BINARIES = $(RV_META_BIN) \
            $(TEST_MUL_BIN) \
            $(TEST_OPERATORS_BIN) \
            $(TEST_PRINTF_BIN) \
-           $(TEST_RAND_BIN)
+           $(TEST_CACHE_BIN) \
+           $(TEST_RAND_BIN)  
 
 ASSEMBLY = $(TEST_CC_ASM)
 
@@ -661,6 +668,10 @@ $(TEST_JIT_BIN): $(TEST_JIT_OBJS) $(RV_ASM_LIB) $(RV_UTIL_LIB) $(ASMJIT_LIB)
 	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) -o $@)
 
 $(TEST_MMU_BIN): $(TEST_MMU_OBJS) $(RV_UTIL_LIB)
+	@mkdir -p $(shell dirname $@) ;
+	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) -o $@)
+
+$(TEST_CACHE_BIN): $(TEST_CACHE_OBJS) $(RV_UTIL_LIB) $(RV_ASM_LIB)
 	@mkdir -p $(shell dirname $@) ;
 	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) -o $@)
 
