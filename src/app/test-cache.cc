@@ -162,18 +162,16 @@ int main(int argc, char *argv[])
 	assert(segment);
 	assert(uva == mmu.mem->segments.front()->uva + 0x0LL);
         
-        processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>>
-        myProc; 
-        mmu.store(myProc, 0x20000, 327);
+        typedef processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>> process_type;
+        process_type myProc; 
+        //mmu.store(myProc, 0x20000, 327);
         int x = 477;
         printf("x is %d\n",x);
         mmu.load(myProc, 0x20000, x);
         printf("x is %d\n",x);
 
-        typedef tagged_cache_rv64<4096,1,1024> myCache;
-        myCache cacheL;
-        cacheL.access_cache(0x30000, 'W'); 
-
-
+        tagged_cache<param_rv64,4096,1,1024, user_memory<u64>, process_type, mmu_type> myCache(myProc, mmu);
+        //myCache.access_cache(0x20000, 'W'); 
+        //myCache.access_cache(0x30000, 'W');
 
 }
