@@ -94,5 +94,5 @@ int main(int argc, char *argv[])
 	memory_segment<typename tlb_type::UX> *segment = nullptr;
 	addr_t uva = mmu.mem->mpa_to_uva(segment, 0x1000);
 	assert(segment);
-	assert(uva == mmu.mem->segments.front()->uva + 0x0LL);
+	assert(uva == mmu.mem->segments.front()->uva + 0x0LL); 
 }

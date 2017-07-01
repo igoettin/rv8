@@ -1,3 +1,4 @@
+
 //
 //  mmu-soft.h
 //
@@ -12,10 +13,9 @@ namespace riscv {
 	{
 		typedef TLB    tlb_type;
 		typedef PMA    pma_type;
-
 		typedef std::shared_ptr<MEMORY> memory_type;
-
-		enum mmu_op {
+		
+                enum mmu_op {
 			op_fetch,
 			op_load,
 			op_store
@@ -199,6 +199,7 @@ namespace riscv {
 		template <typename P, typename T, const mmu_op op = op_load>
 		void load(P &proc, UX va, T &val)
 		{
+
 			typename tlb_type::tlb_entry_t* tlb_ent = nullptr;
 			memory_segment<UX> *segment = nullptr;
 
