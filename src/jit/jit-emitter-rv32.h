@@ -24,6 +24,9 @@ namespace riscv {
 		TraceLookup lookup_trace_slow;
 		TraceLookup lookup_trace_fast;
 		std::map<addr_t,Label> labels;
+		std::map<addr_t,Label> jmp_tramp_labels;
+		std::map<addr_t,Label> exit_tramp_labels;
+		std::map<addr_t,std::vector<Label>> jmp_fixup_labels;
 		std::vector<addr_t> callstack;
 		u32 term_pc;
 		bool use_mmu;
@@ -198,6 +201,19 @@ namespace riscv {
 			as.pop(x86::r13);
 			as.pop(x86::r12);
 			as.ret();
+
+
+			for (auto &jtl : jmp_tramp_labels) {
+				as.bind(jtl.second);
+				emit_pc(jtl.first);
+				as.jmp(Imm(func_address(lookup_trace_fast)));
+			}
+
+			for (auto &jtl : exit_tramp_labels) {
+				as.bind(jtl.second);
+				emit_pc(jtl.first);
+				as.jmp(term);
+			}
 		}
 
 		TraceLookup create_trace_lookup(JitRuntime &rt)
@@ -1862,6 +1878,56 @@ namespace riscv {
 			}
 		}
 
+		inline auto create_exit_tramp(addr_t pc)
+		{
+			auto jtl = exit_tramp_labels.find(pc);
+			if (jtl == exit_tramp_labels.end()) {
+				jtl = exit_tramp_labels.insert(exit_tramp_labels.end(),
+					std::pair<addr_t,Label>(pc, as.newLabel()));
+			}
+			return jtl;
+		}
+
+		inline auto create_jump_tramp(addr_t pc)
+		{
+			auto jtl = jmp_tramp_labels.find(pc);
+			if (jtl == jmp_tramp_labels.end()) {
+				jtl = jmp_tramp_labels.insert(jmp_tramp_labels.end(),
+					std::pair<addr_t,Label>(pc, as.newLabel()));
+			}
+			return jtl;
+		}
+
+		inline auto create_jump_fixup(addr_t pc)
+		{
+			auto jfl = jmp_fixup_labels.find(pc);
+			if (jfl == jmp_fixup_labels.end()) {
+				jfl = jmp_fixup_labels.insert(jmp_fixup_labels.end(),
+					std::pair<addr_t,std::vector<Label>>(pc, std::vector<Label>()));
+			}
+			return jfl;
+		}
+
+		void emit_jump_fixup(addr_t pc)
+		{
+			auto jtl = create_jump_tramp(pc);
+			auto jfl = create_jump_fixup(pc);
+			as.jmp(jtl->second);
+			Label label = as.newLabel();
+			as.bind(label);
+			jfl->second.push_back(label);
+		}
+
+		void emit_branch_fixup(x86::Cond bf, addr_t pc)
+		{
+			auto jtl = create_jump_tramp(pc);
+			auto jfl = create_jump_fixup(pc);
+			as.j(bf, jtl->second);
+			Label label = as.newLabel();
+			as.bind(label);
+			jfl->second.push_back(label);
+		}
+
 		bool emit_branch(decode_type &dec, bool cond, x86::Cond bf, x86::Cond ibf)
 		{
 			addr_t branch_pc = dec.pc + dec.imm;
@@ -1871,7 +1937,6 @@ namespace riscv {
 
 			log_trace("\t# 0x%016llx\t%s", dec.pc, disasm_inst_simple(dec).c_str());
 			emit_cmp(dec);
-			term_pc = 0;
 
 			if (branch_i != labels.end() && cont_i != labels.end()) {
 				as.j(bf, branch_i->second);
@@ -1883,9 +1948,9 @@ namespace riscv {
 				if (cont_addr) {
 					as.jmp(Imm(cont_addr));
 				} else {
-					emit_pc(cont_pc);
-					as.jmp(Imm(func_address(lookup_trace_fast)));
+					emit_jump_fixup(cont_pc);
 				}
+				term_pc = 0;
 			}
 			else if (!cond && cont_i != labels.end()) {
 				as.j(ibf, cont_i->second);
@@ -1893,32 +1958,24 @@ namespace riscv {
 				if (branch_addr) {
 					as.jmp(Imm(branch_addr));
 				} else {
-					emit_pc(branch_pc);
-					as.jmp(Imm(func_address(lookup_trace_fast)));
+					emit_jump_fixup(branch_pc);
 				}
+				term_pc = 0;
 			} else if (cond) {
-				Label l = as.newLabel();
-				as.j(bf, l);
 				uintptr_t cont_addr = lookup_trace_slow(cont_pc);
 				if (cont_addr) {
-					as.jmp(Imm(cont_addr));
+					as.j(ibf, Imm(cont_addr));
 				} else {
-					emit_pc(cont_pc);
-					as.jmp(Imm(func_address(lookup_trace_fast)));
+					emit_branch_fixup(ibf, cont_pc);
 				}
-				as.bind(l);
 				term_pc = branch_pc;
 			} else {
-				Label l = as.newLabel();
-				as.j(ibf, l);
 				uintptr_t branch_addr = lookup_trace_slow(branch_pc);
 				if (branch_addr) {
-					as.jmp(Imm(branch_addr));
+					as.j(bf, Imm(branch_addr));
 				} else {
-					emit_pc(branch_pc);
-					as.jmp(Imm(func_address(lookup_trace_fast)));
+					emit_branch_fixup(bf, branch_pc);
 				}
-				as.bind(l);
 				term_pc = cont_pc;
 			}
 			return true;
@@ -2489,12 +2546,11 @@ namespace riscv {
 				term_pc = 0;
 				addr_t link_addr = callstack.back();
 				callstack.pop_back();
-				as.cmp(x86::gpd(x86_reg(rv_ireg_ra)), Imm(link_addr));
-				Label l = as.newLabel();
-				as.je(l);
-				emit_pc(dec.pc);
-				as.jmp(term);
-				as.bind(l);
+
+				auto etl = create_exit_tramp(dec.pc);
+				as.cmp(x86::gpq(x86_reg(rv_ireg_ra)), Imm(link_addr));
+				as.jne(etl->second);
+
 				return true;
 			} else {
 				term_pc = 0;
@@ -2580,6 +2636,53 @@ namespace riscv {
 			return true;
 		}
 
+		bool emit_zextw(decode_type &dec)
+		{
+			log_trace("\t# 0x%016llx\tzext.w\t%s, %s", dec.pc, rv_ireg_name_sym[dec.rd], rv_ireg_name_sym[dec.rs1]);
+			term_pc = dec.pc + dec.sz;
+			int rdx = x86_reg(dec.rd), rs1x = x86_reg(dec.rs1);
+
+			if (dec.rd == dec.rs1) {
+				//
+			}
+			else {
+				if (rdx > 0 && rs1x > 0) {
+					as.mov(x86::gpd(rdx), x86::gpd(rs1x));
+				} else if (rdx > 0) {
+					as.mov(x86::gpd(rdx), rbp_reg_d(dec.rs1));
+				} else if (rs1x > 0) {
+					as.mov(rbp_reg_d(dec.rd), x86::gpd(rs1x));
+				} else {
+					as.movzx(x86::eax, rbp_reg_d(dec.rs1));
+					as.mov(rbp_reg_d(dec.rd), x86::eax);
+				}
+			}
+
+			return true;
+		}
+
+		bool emit_addiwz(decode_type &dec)
+		{
+			log_trace("\t# 0x%016llx\taddiw.z\t%s, %d", dec.pc, rv_ireg_name_sym[dec.rd], dec.imm);
+			term_pc = dec.pc + dec.sz;
+			int rdx = x86_reg(dec.rd);
+
+			if (dec.rd == rv_ireg_zero) {
+				// nop
+			}
+			else {
+				if (rdx > 0) {
+					as.add(x86::gpd(rdx), Imm(dec.imm));
+				} else {
+					as.mov(x86::eax, rbp_reg_d(dec.rd));
+					as.add(x86::eax, Imm(dec.imm));
+					as.mov(rbp_reg_d(dec.rd), x86::eax);
+				}
+			}
+
+			return true;
+		}
+
 		bool emit(decode_type &dec)
 		{
 			auto li = labels.find(dec.pc);
@@ -2637,6 +2740,8 @@ namespace riscv {
 				case rv_op_jalr: return emit_jalr(dec);
 				case jit_op_la: return emit_la(dec);
 				case jit_op_call: return emit_call(dec);
+				case jit_op_zextw: return emit_zextw(dec);
+				case jit_op_addiwz: return emit_addiwz(dec);
 			}
 			return false;
 		}
