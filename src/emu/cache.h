@@ -20,7 +20,13 @@ namespace riscv {
 		cache_state_invalid   = 0b000,                   /* not valid, must be fetched */
 		cache_state_mask      = 0b111,
 	};
-
+        
+        enum cache_line_status {
+            cache_line_empty      = 0b00, /*Cache line is empty and not being used.*/
+            cache_line_hit        = 0b01, /*Cache line has the ppn we're looking for*/
+            cache_line_must_evict = 0b10, /*Cache line must be evicted to make room for another*/
+            cache_line_filled     = 0b11, /*Cache line is filled with data but does not need to be evicted yet.*/
+        };
 
 	/*
 	 * tagged_cache_entry
@@ -58,7 +64,7 @@ namespace riscv {
 		UX      asid  : asid_bits;     /* Address Space Identifier */
 		pdid_t  pdid;                  /* Protection Domain Identifer */
 		u8*     data;                  /* Cache Data */
-                UX      va;                    /* Virtual Address XXX May not need*/
+                UX      status: 2;             /* Status of the entry (i.e. line is a hit, empty, or must be evicted)*/
 
 		tagged_cache_entry() :
 			 vcln(vcln_limit),
@@ -87,25 +93,18 @@ namespace riscv {
 	 */
 
 	template <typename PARAM, const size_t cache_size, const size_t cache_ways, const size_t cache_line_size,
-		typename MEMORY = user_memory<typename PARAM::UX>, 
-                typename P = processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>>, 
-                typename MMU = mmu_soft_rv64>
+		typename MEMORY = user_memory<typename PARAM::UX>> 
 	struct tagged_cache
 	{
 		static_assert(ispow2(cache_size), "cache_size must be a power of 2");
 		static_assert(ispow2(cache_ways), "cache_ways must be a power of 2");
 		static_assert(ispow2(cache_line_size), "cache_line_size must be a power of 2");
-                
+
 		typedef typename PARAM::UX UX;
 		typedef MEMORY memory_type;
 		typedef tagged_cache_entry<PARAM,cache_line_size> cache_entry_t;
-                
-                
+                std::shared_ptr<memory_type> mem;
 
-                //Variables for managing loads/stores. 
-                P proc;
-                MMU mmu;
-                
 		enum : UX {
 			size =                cache_size,
 			line_size =           cache_line_size,
@@ -130,18 +129,17 @@ namespace riscv {
 
                 
 
-
 		// TODO - map cache index and data into the machine address space with user_memory::add_segment
 
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
 
-		tagged_cache(P & _proc, MMU &_mmu ) 
-                    : cache_key(), proc(_proc), mmu(_mmu)
+		tagged_cache(std::shared_ptr<memory_type> _mem) : mem(_mem)
 		{
-			for (size_t i = 0; i < num_entries * num_ways; i++) {
+                        static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
+                        for (size_t i = 0; i < num_entries * num_ways; i++) {
 				cache_key[i].data = cache_data + i * cache_line_size;
-                                cache_key[i].state = cache_state_invalid;
+                                cache_key[i].status = cache_line_empty;
 			}
 		}
 
@@ -171,119 +169,78 @@ namespace riscv {
 			}
 		}
                 
-                //Go through the line and store the contents for each element in the cache line.
-                void store_line_into_mem(UX va){
-                    UX data_index = va & data_index_mask;
-                    UX cache_line_offset = va & cache_line_offset_mask;
-                    size_t indexForData; UX indexVA; UX offset;
+                //Go through the line and load/store the contents for each element in the cache line.
+                void ld_str_into_mem(UX mpa, u8 op){
+                    UX mpa_masked = mpa & cache_line_mask;
+                    UX index_for_data, offset;
                     //Traverse the cache line forward. Store the data corresponding to each address into memory.
-                    for(indexForData = data_index, indexVA = va, offset = cache_line_offset  
+                    for(index_for_data = mpa_masked & data_index_mask, offset = 0  
                         ; offset <= cache_line_offset_mask
-                        ; indexForData++, indexVA++, offset++)
-                        mmu.store(proc, indexVA, cache_data[indexForData]);
-
-                    //Traverse the cache line backward. Keep storing data.
-                    for(indexForData = data_index - 1, indexVA = va - 1, offset = cache_line_offset - 1  
-                        ; offset >= 0
-                        ; indexForData--, indexVA--, offset--)
-                        mmu.store(proc, indexVA, cache_data[indexForData]);
+                        ; index_for_data++, offset++, mpa_masked++)
+                        op == 'S' ? mem->store(mpa_masked,cache_data[index_for_data]) : mem->load(mpa_masked,cache_data[index_for_data]);
                 }
                 
-                
-                //Go through the line and load the contents for each element in the cache line from memory.
-                void load_line_from_mem(UX va){
-                    UX data_index = va & data_index_mask;
-                    UX cache_line_offset = va & cache_line_offset_mask;
-                    size_t indexForData; UX indexVA; UX offset;
-                    //Traverse the cache line forward. Load the data corresponding to each address into memory.
-                    printf("adrr is 0x%llx\n",va);
-                    for(indexForData = data_index, indexVA = va, offset = cache_line_offset  
-                        ; offset <= cache_line_offset_mask
-                        ; indexForData++, indexVA++, offset++){
-                        mmu.load(proc, indexVA, cache_data[indexForData]);
-                        printf("HELLO\n");
-                        }
-
-                    //Traverse the cache line backward. Keep loading data.
-                    for(indexForData = data_index - 1, indexVA = va - 1, offset = cache_line_offset - 1  
-                        ; offset >= 0
-                        ; indexForData--, indexVA--, offset--)
-                        mmu.load(proc, indexVA, cache_data[indexForData]);
-                }
-
-                
-            
-                //Given a va, access the cache to find the corresponding cache_entry, if it exists.
-                u8 access_cache(UX va, u8 operation){
-                    std::pair<cache_entry_t *, u8> lookup_result = lookup_cache_line(0,0,va);
-                    cache_entry_t *ent = lookup_result.first;
-                    tagged_tlb_entry<PARAM>* tlb_ent = mmu.l1_dtlb.lookup(0,0,va);
-                    //If there is no mapping in the tlb, insert an entry into the TLB and
-                    //call the mmu to get the ppn for the va.
-                    if(!tlb_ent)
-                        mmu.l1_dtlb.insert(0,0,va,2,0xff,
-                        (UX) (mmu.template translate_addr<P,MMU::op_store>(proc, va, tlb_ent) & vpn_mask)
-                        ,0);
-                    if(lookup_result.second == 2 || lookup_result.second == 1){
-                        //No hit found, need to evict a block and flush to memory.
-                        //TODO LRU Replacement and associativity
-                        if(ent->ppn != tlb_ent->ppn){ 
-                            //Store the line into mem if the op was a write
-                            if(operation == 'W')
-                                store_line_into_mem(ent->va);
-                            //Evict the line and load from memory for the new va
-                            *ent = cache_entry_t();
-                            load_line_from_mem(va);
-                            //set the va for the entry
-                            *ent = tagged_cache_entry<PARAM,cache_line_size>();
-                            ent->va = va;
-                            ent->ppn = tlb_ent->ppn;
-                        }
-                        else
-                            printf("We got a hit!");
+                //Given an mpa, access the cache to find the corresponding cache_entry, if it exists.
+                //val will be written to the cache if op is 'S' and read from cache if op is 'L'
+                //The caller must access the TLB and translate the UX va to UX mpa and provide it to this function.
+                u8 access_cache(UX mpa, u8 op, u8 val = 0){
+                    cache_entry_t * ent = lookup_cache_line(mpa);
+                    //Write thru policy so write to mem
+                    if(op == 'S'){
+                        cache_data[mpa & data_index_mask] = val;
+                        mem->store(mpa,val);
                     }
-                    //No entry, populate the cache entry
-                    else if(lookup_result.second == 0){
-                        load_line_from_mem(va);
-                        //set the va for the entry
-                        ent->va = va;
-                        ent->ppn = tlb_ent->ppn;
-                        ent->state = cache_state_shared; 
+                    if(ent->status == cache_line_hit){
+                        printf("We got a hit!\n");
+                        ent->status = cache_line_filled;
                     }
-                    return cache_data[va & data_index_mask];
+                    else if(ent->status == cache_line_must_evict){
+                        //TODO LRU Replacement, associativity, and writing policies
+                        printf("We have a miss! We must evict a block.\n");
+                        if(op == 'L')
+                            ld_str_into_mem(mpa, 'L'); 
+                        ent->ppn = mpa >> (num_entries_shift  + cache_line_shift);
+                        ent->status = cache_line_filled;
+                    }
+                    else if(ent->status == cache_line_empty){
+                        printf("We have a miss! We must fill an empty block\n");
+                        if(op == 'W')
+                            ld_str_into_mem(mpa,'L');
+                        ent->ppn = mpa >> (num_entries_shift + cache_line_shift);
+                        ent->state = cache_line_filled;
+                    }
+                    return cache_data[mpa & data_index_mask];
                 }
 
 		// cache line is virtually indexed but physically tagged.
-		// caller has to check that the ppn of the cache line matches the TLB ppn.
 		// Returns a cache line entry that could be a hit, line to evict, or empty line.
                 // Also returns the code to define the entry, 0 == empty, 1 == hit, 2 == evict
-                std::pair<cache_entry_t*,u8> lookup_cache_line(UX pdid, UX asid, UX va)
+                cache_entry_t* lookup_cache_line(UX mpa)
 		{
                     cache_entry_t *empty_cache_line, *line_to_evict;
                     u8 found_empty_line = 0;
-
-		    UX vcln = va >> cache_line_shift;
-		    UX entry = vcln & num_entries_mask;
-		    cache_entry_t *ent = cache_key + (entry << num_ways_shift);
+		    UX pcln = mpa >> cache_line_shift;
+		    UX entry = pcln & num_entries_mask;
+                    UX ppn = pcln >> num_entries_shift;
+		    cache_entry_t *ent = cache_key + (entry); //<< num_ways_shift removed here, may need to put back.
 		    for (size_t i = 0; i < num_ways; i++) {
-			if (ent->vcln == vcln && ent->pdid == pdid && ent->asid == asid) {
-			    return std::make_pair(ent,1);
+			if (ent->ppn == ppn) {
+			    ent->status = cache_line_hit;
+                            return ent;
 			}
-                        else if(!found_empty_line && ent->state == cache_state_invalid){
+                        else if(!found_empty_line && ent->status == cache_line_empty){
                             found_empty_line = 1;
                             empty_cache_line = ent;
                         }
                         else{
                             //TODO Implement replace policy, LRU?
                             line_to_evict = ent;
+                            ent->status = cache_line_must_evict;
                         }
                         ent++;
 		    }
 		    
-                    if(found_empty_line)
-                        return std::make_pair(empty_cache_line,0);
-                    else
-                        return std::make_pair(line_to_evict,2);
+                    return found_empty_line ? empty_cache_line : line_to_evict;
 		}
 
 		// caller got a cache miss or invalid ppn from TLB and wants to allocate
@@ -301,17 +258,13 @@ namespace riscv {
 	};
 
 
-        /*
-	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size,
-        processor_runloop<processor_privileged<processor_rv32imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv32>>>
-        tagged_,>
+        
+	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size>
 	using tagged_cache_rv32 = tagged_cache<param_rv32,cache_size,cache_ways,cache_line_size>;
 
-	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size,
-        processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>>
-        ,>
+	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size>
 	using tagged_cache_rv64 = tagged_cache<param_rv64,cache_size,cache_ways,cache_line_size>;
-        */
+        
 }
 
 #endif
