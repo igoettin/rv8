@@ -21,12 +21,20 @@ namespace riscv {
 		cache_state_mask      = 0b111,
 	};
         
+        //Enumerated types to define the status a cache line is in during a lookup.
         enum cache_line_status {
             cache_line_empty      = 0b00, /*Cache line is empty and not being used.*/
             cache_line_hit        = 0b01, /*Cache line has the ppn we're looking for*/
             cache_line_must_evict = 0b10, /*Cache line must be evicted to make room for another*/
             cache_line_filled     = 0b11, /*Cache line is filled with data but does not need to be evicted yet.*/
         };
+        
+        //Enumerated types to define the write to memory policy for the cache.
+        enum cache_write_policy {
+            cache_write_through = 0b0,
+            cache_write_back    = 0b1,
+        };
+
 
 	/*
 	 * tagged_cache_entry
@@ -44,11 +52,11 @@ namespace riscv {
 
 		enum : UX {
 			cache_line_shift =    ctz_pow2(cache_line_size),
-			va_bits =             (sizeof(UX) << 3) - cache_line_shift,
+			mpa_bits =            (sizeof(UX) << 3) - cache_line_shift,
 			state_bits =          cache_line_shift,
 			asid_bits =           PARAM::asid_bits,
 			ppn_bits =            PARAM::ppn_bits,
-			vcln_limit =          (1ULL<<va_bits)-1,
+			pcln_limit =          (1ULL<<mpa_bits)-1,
 			ppn_limit =           (1ULL<<ppn_bits)-1,
 			asid_limit =          (1ULL<<asid_bits)-1
 		};
@@ -58,24 +66,25 @@ namespace riscv {
 
 		/* Cache entry attributes */
 
-		UX      vcln  : va_bits;       /* Virtual Cache Line Number */
+		UX      pcln  : mpa_bits;       /* Physical Cache Line Number */
 		UX      state : state_bits;    /* Cache State */
 		UX      ppn   : ppn_bits;      /* Physical Page Number */
 		UX      asid  : asid_bits;     /* Address Space Identifier */
 		pdid_t  pdid;                  /* Protection Domain Identifer */
 		u8*     data;                  /* Cache Data */
                 UX      status: 2;             /* Status of the entry (i.e. line is a hit, empty, or must be evicted)*/
+                UX      LRU_count;             /* Counter for Least Recently used policy */
 
 		tagged_cache_entry() :
-			 vcln(vcln_limit),
+			 pcln(pcln_limit),
 			 state(cache_state_invalid),
 			 ppn(ppn_limit),
 			 asid(asid_limit),
 			 pdid(-1),
 			 data(nullptr) {}
 
-		tagged_cache_entry(UX vcln, UX asid, UX ppn) :
-			vcln(vcln),
+		tagged_cache_entry(UX pcln, UX asid, UX ppn) :
+			pcln(pcln),
 			state(cache_state_invalid),
 			ppn(ppn),
 			asid(asid),
@@ -103,9 +112,8 @@ namespace riscv {
 		typedef typename PARAM::UX UX;
 		typedef MEMORY memory_type;
 		typedef tagged_cache_entry<PARAM,cache_line_size> cache_entry_t;
-                std::shared_ptr<memory_type> mem;
-
-		enum : UX {
+		
+                enum : UX {
 			size =                cache_size,
 			line_size =           cache_line_size,
 			num_ways =            cache_ways,
@@ -124,23 +132,28 @@ namespace riscv {
                         cache_line_offset_mask = ((UX(1) << cache_line_shift)-1),
 
 			asid_bits =           PARAM::asid_bits,
-			ppn_bits =            PARAM::ppn_bits
+			ppn_bits =            PARAM::ppn_bits,
+
 		};
 
+                std::shared_ptr<memory_type> mem;
+                UX write_policy;
+		
                 
-
 		// TODO - map cache index and data into the machine address space with user_memory::add_segment
 
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
 
-		tagged_cache(std::shared_ptr<memory_type> _mem) : mem(_mem)
+		tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) 
 		{
-                        static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
-                        for (size_t i = 0; i < num_entries * num_ways; i++) {
-				cache_key[i].data = cache_data + i * cache_line_size;
-                                cache_key[i].status = cache_line_empty;
-			}
+                    static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
+                    for (size_t i = 0; i < num_entries * num_ways; i++) {
+			cache_key[i].data = cache_data + i * cache_line_size;
+                        cache_key[i].status = cache_line_empty;
+                        cache_key[i].LRU_count = 0;
+			cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
+                    }
 		}
 
 		void flush(memory_type &mem)
@@ -169,6 +182,15 @@ namespace riscv {
 			}
 		}
                 
+                //Update all cache entries' LRU counters in the set, except for the most recently accessed item
+                //The caller must set the most recently accessed LRU_counter to 0.
+                void update_LRU_counters(UX index_for_set, cache_entry_t *entry_to_skip){
+                    index_for_set <<= num_ways;
+                    for(size_t i = 0; i < num_ways; i++)
+                        if(&cache_key[index_for_set + i] != entry_to_skip)
+                            cache_key[index_for_set + i].LRU_count++;
+                }
+
                 //Go through the line and load/store the contents for each element in the cache line.
                 void ld_str_into_mem(UX mpa, u8 op){
                     UX mpa_masked = mpa & cache_line_mask;
@@ -181,34 +203,52 @@ namespace riscv {
                 }
                 
                 //Given an mpa, access the cache to find the corresponding cache_entry, if it exists.
-                //val will be written to the cache if op is 'S' and read from cache if op is 'L'
+                //val will be written to the cache if op is 'S', otherwise the cache will load if the op is 'L'
                 //The caller must access the TLB and translate the UX va to UX mpa and provide it to this function.
                 u8 access_cache(UX mpa, u8 op, u8 val = 0){
                     cache_entry_t * ent = lookup_cache_line(mpa);
-                    //Write thru policy so write to mem
-                    if(op == 'S'){
-                        cache_data[mpa & data_index_mask] = val;
-                        mem->store(mpa,val);
-                    }
                     if(ent->status == cache_line_hit){
                         printf("We got a hit!\n");
                         ent->status = cache_line_filled;
                     }
                     else if(ent->status == cache_line_must_evict){
-                        //TODO LRU Replacement, associativity, and writing policies
                         printf("We have a miss! We must evict a block.\n");
-                        if(op == 'L')
-                            ld_str_into_mem(mpa, 'L'); 
-                        ent->ppn = mpa >> (num_entries_shift  + cache_line_shift);
+                        if(write_policy == cache_write_back){
+                            //If the line is dirty, write its contents to mem
+                            if(ent->state == cache_state_modified){
+                                ld_str_into_mem(ent->pcln << cache_line_shift, 'S');
+                                ent->state = cache_state_shared; 
+                            }
+                            //Set the LRU counter for the current line to be 0, and update all te other lines in the set.
+                            ent->LRU_count = 0;
+                            update_LRU_counters(mpa & num_entries_mask, ent);
+                        }
+                        //Load the block from memory into the cache.
+                        ld_str_into_mem(mpa, 'L'); 
+                        ent->pcln = mpa >> cache_line_shift;
+                        ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                     }
                     else if(ent->status == cache_line_empty){
                         printf("We have a miss! We must fill an empty block\n");
-                        if(op == 'W')
-                            ld_str_into_mem(mpa,'L');
-                        ent->ppn = mpa >> (num_entries_shift + cache_line_shift);
-                        ent->state = cache_line_filled;
+                        ld_str_into_mem(mpa,'L');
+                        ent->pcln = mpa >> cache_line_shift;
+                        ent->ppn = ent->pcln >> num_entries_shift;
+                        ent->status = cache_line_filled;
                     }
+                    //If write through policy is used and mem access is a store,
+                    //store the contents of the mpa directly to memory.
+                    if(op == 'S' && write_policy == cache_write_through){
+                        cache_data[mpa & data_index_mask] = val;
+                        mem->store(mpa,val);
+                    }
+                    //If write back policy is used and mem access is a store,
+                    //set the cache state to modified (aka dirty)
+                    if(op == 'S' && write_policy == cache_write_back){
+                        ent->state = cache_state_modified;
+                        cache_data[mpa & data_index_mask] = val;
+                    }
+
                     return cache_data[mpa & data_index_mask];
                 }
 
@@ -218,12 +258,12 @@ namespace riscv {
                 cache_entry_t* lookup_cache_line(UX mpa)
 		{
                     cache_entry_t *empty_cache_line, *line_to_evict;
-                    u8 found_empty_line = 0;
+                    u8 found_empty_line = 0, maxLRU = 0;
 		    UX pcln = mpa >> cache_line_shift;
 		    UX entry = pcln & num_entries_mask;
                     UX ppn = pcln >> num_entries_shift;
-		    cache_entry_t *ent = cache_key + (entry); //<< num_ways_shift removed here, may need to put back.
-		    for (size_t i = 0; i < num_ways; i++) {
+                    for (size_t i = 0; i < num_ways; i++) {
+                        cache_entry_t *ent = cache_key + ((entry << num_ways_shift) + i);
 			if (ent->ppn == ppn) {
 			    ent->status = cache_line_hit;
                             return ent;
@@ -232,15 +272,18 @@ namespace riscv {
                             found_empty_line = 1;
                             empty_cache_line = ent;
                         }
-                        else{
-                            //TODO Implement replace policy, LRU?
+                        else if(ent->LRU_count >= maxLRU){
+                            maxLRU = ent->LRU_count;
                             line_to_evict = ent;
-                            ent->status = cache_line_must_evict;
                         }
-                        ent++;
 		    }
-		    
-                    return found_empty_line ? empty_cache_line : line_to_evict;
+                    
+                    if(found_empty_line) 
+                        return empty_cache_line; 
+                    else { 
+                        line_to_evict->status = cache_line_must_evict;
+                        return line_to_evict;
+                    }
 		}
 
 		// caller got a cache miss or invalid ppn from TLB and wants to allocate

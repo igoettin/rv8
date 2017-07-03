@@ -123,27 +123,38 @@ int main(int argc, char *argv[])
     assert(sizeof(sv48_pa) == 8);
     assert(sizeof(sv48_pte) == 8);
 
-    typedef tagged_tlb_rv64<128> tlb_type;
     typedef mmu_soft_rv64 mmu_type;
 
     mmu_type mmu;
 
     // add RAM to the MMU emulation (exclude zero page)
-    mmu.mem->add_ram(0x1000, /*1GB*/0x40000000LL - 0x1000);
-
-    typedef processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>> process_type;
-    process_type myProc; 
-    mmu.store(myProc, 0x20000, 327);
-    int x = 477;
-    printf("x is %d\n",x);
-    mmu.load(myProc, 0x20000, x);
-    printf("x is %d\n",x);
-
+    mmu.mem->add_ram(0x2ABCDE, /*1GB*/0x40000000LL - 0x2ABCDE);
+    
+    //////////////////////////
     //Direct mapped, write through tests.
+    //////////////////////////
 
-    tagged_cache<param_rv64,4096,1,1024> myCache(mmu.mem);
-    u8 y = myCache.access_cache(0x2ABCDE, 'W', 75); 
-    u8 z = myCache.access_cache(0x2ABCDE, 'L');
-    assert(z == y);
+    tagged_cache<param_rv64,4096,1,1024> cache_dm(mmu.mem,cache_write_through);
+    //Store a value into the cache, load to see if we got a hit.
+    u8 y = cache_dm.access_cache(0x2ABCDE, 'S', 23); 
+    u8 y2 = cache_dm.access_cache(0x2ABCDE,'L');
+    //Check the same value was returned, and that the value exists in memory.
+    assert(y == y2);
+    assert(((cache_dm.lookup_cache_line(0x2ABCDE)->ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
+    assert(cache_dm.mem->segments.front()->mpa == mmu.mem->segments.front()->mpa);
+    //Evict the same block with a new tag
+    u8 z = cache_dm.access_cache(0x2ACCDA, 'S', 75);
+    u8 z2 = cache_dm.access_cache(0x2ACCDA, 'L');
+    //Check the ppn was changed
+    assert(z == z2);
+    assert(z2 != y);
+    assert(cache_dm.lookup_cache_line(0x2ACCDA)->ppn != 0x2ab);
+    //Load the previous tag back in, check that it still retains its old value from main memory
+    u8 z3 = cache_dm.access_cache(0x2abcde, 'L');
+    assert(z3 == y);
+    assert(z3 == y2);
+    //Lookup the 0x2accda mpa, check that the ppn there is for 0x2ab since we loaded it in.
+    assert(cache_dm.lookup_cache_line(0x2accda)->ppn == 0x2ab);
 }
+
 
