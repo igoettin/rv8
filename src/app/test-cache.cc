@@ -111,23 +111,9 @@ int main(int argc, char *argv[])
     assert(page_shift == 12);
     assert(page_size == 4096);
 
-    assert(sizeof(sv32_va) == 4);
-    assert(sizeof(sv32_pa) == 8);
-    assert(sizeof(sv32_pte) == 4);
+    typedef mmu_soft_rv64 mmu;
 
-    assert(sizeof(sv39_va) == 8);
-    assert(sizeof(sv39_pa) == 8);
-    assert(sizeof(sv39_pte) == 8);
-
-    assert(sizeof(sv48_va) == 8);
-    assert(sizeof(sv48_pa) == 8);
-    assert(sizeof(sv48_pte) == 8);
-
-    typedef mmu_soft_rv64 mmu_type;
-
-    mmu_type mmu;
-
-    // add RAM to the MMU emulation (exclude zero page)
+    // add some RAM to the mmu
     mmu.mem->add_ram(0x2ABCDE, /*1GB*/0x40000000LL - 0x2ABCDE);
     
     //////////////////////////
@@ -135,26 +121,65 @@ int main(int argc, char *argv[])
     //////////////////////////
 
     tagged_cache<param_rv64,4096,1,1024> cache_dm(mmu.mem,cache_write_through);
-    //Store a value into the cache, load to see if we got a hit.
+    //Store a value into an empty line in the cache, load to see if we got a hit.
     u8 y = cache_dm.access_cache(0x2ABCDE, 'S', 23); 
+    assert(cache_dm.last_access == cache_line_empty);
     u8 y2 = cache_dm.access_cache(0x2ABCDE,'L');
+    assert(cache_dm.last_access == cache_line_hit);
     //Check the same value was returned, and that the value exists in memory.
     assert(y == y2);
-    assert(((cache_dm.lookup_cache_line(0x2ABCDE)->ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
+    assert(((cache_dm.lookup_cache_line(0x2ABCDE).first->ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
     assert(cache_dm.mem->segments.front()->mpa == mmu.mem->segments.front()->mpa);
     //Evict the same block with a new tag
     u8 z = cache_dm.access_cache(0x2ACCDA, 'S', 75);
+    assert(cache_dm.last_access == cache_line_must_evict);
     u8 z2 = cache_dm.access_cache(0x2ACCDA, 'L');
-    //Check the ppn was changed
+    assert(cache_dm.last_access = cache_line_hit);
+    //Check we get 75 back
     assert(z == z2);
     assert(z2 != y);
-    assert(cache_dm.lookup_cache_line(0x2ACCDA)->ppn != 0x2ab);
+    //Check the ppn was changed
+    assert(cache_dm.lookup_cache_line(0x2ACCDA).first->ppn != 0x2ab);
     //Load the previous tag back in, check that it still retains its old value from main memory
     u8 z3 = cache_dm.access_cache(0x2abcde, 'L');
+    assert(cache_dm.last_access == cache_line_must_evict);
     assert(z3 == y);
     assert(z3 == y2);
     //Lookup the 0x2accda mpa, check that the ppn there is for 0x2ab since we loaded it in.
-    assert(cache_dm.lookup_cache_line(0x2accda)->ppn == 0x2ab);
-}
+    assert(cache_dm.lookup_cache_line(0x2accda).first->ppn == 0x2ab);
+
+
+    ///////////////////////////
+    //Set Associative, write back tests.
+    ///////////////////////////
+    
+    printf("------------------------\n");
+
+    mmu.mem->clear_segments();
+    mmu.mem->add_ram(0x20000, 0x40000000LL - 0x20000);
+    
+    
+    tagged_cache<param_rv64,16384,4,256> cache_sa(mmu.mem);
+    //Fill a set with data
+    cache_sa.access_cache(0x20000,'S',76);
+    assert(cache_sa.last_access == cache_line_empty);
+    cache_sa.access_cache(0x3f0de, 'S', 55);
+    assert(cache_sa.last_access == cache_line_empty);
+    cache_sa.access_cache(0x45021, 'L');
+    assert(cache_sa.last_access == cache_line_empty);
+    cache_sa.access_cache(0x23025, 'S', 23);
+    assert(cache_sa.last_access == cache_line_empty);
+    //access the cache to see if we get a hit.
+    u8 x = cache_sa.access_cache(0x3f0de, 'L');
+    assert(cache_sa.last_access == cache_line_hit);
+    u8 x2 = cache_sa.access_cache(0x23025, 'L');
+    assert(cache_sa.last_access == cache_line_hit);
+    u8 x3 = cache_sa.access_cache(0x20000, 'L');
+    assert(cache_sa.last_access == cache_line_hit);
+    printf("%d, %d, %d\n",x, x2, x3);
+    assert(x == 55 && x2 == 23 && x3 == 76);
+
+}       
+
 
 
