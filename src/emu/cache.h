@@ -215,16 +215,14 @@ namespace riscv {
 
                     //No hit was found, evict a block
                     else if(ent->status == cache_line_must_evict){
-                        if(write_policy == cache_write_back){
-                            //If the line is dirty, write its contents to mem
-                            if(ent->state == cache_state_modified){
-                                load_or_store_into_mem(ent->pcln << cache_line_shift, 'S', index_for_entry);
-                                ent->state = cache_state_shared; 
-                            }
-                            //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
-                            ent->LRU_count = 0;
-                            update_LRU_counters(ent->pcln & num_entries_mask, ent);
+                        //If the line is dirty, write its contents to mem
+                        if(write_policy == cache_write_back && ent->state == cache_state_modified){
+                            load_or_store_into_mem(ent->pcln << cache_line_shift, 'S', index_for_entry);
+                            ent->state = cache_state_shared; 
                         }
+                        //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
+                        ent ->LRU_count = 0;
+                        update_LRU_counters(ent->pcln & num_entries_mask, ent);
                         //Load the block from memory into the cache.
                         load_or_store_into_mem(mpa, 'L', index_for_entry); 
                         ent->pcln = mpa >> cache_line_shift;
@@ -280,7 +278,7 @@ namespace riscv {
                         UX index = ((entry << num_ways_shift) + i);
                         //cache entry at index location
                         cache_entry_t *ent = cache_key + index;
-			//Check if hit
+                        //Check if hit
                         if (ent->ppn == ppn) {
                             ent->status = cache_line_hit;
                             return std::make_pair(ent,index);
@@ -298,7 +296,6 @@ namespace riscv {
                             maxLRUIndex = index;
                         }
 		    }
-                   
                     //Return the empty block if that's all that could be found
                     if(found_empty_line) 
                         return std::make_pair(empty_cache_line,emptyLineIndex); 
