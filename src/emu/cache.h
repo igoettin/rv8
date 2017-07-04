@@ -157,34 +157,14 @@ namespace riscv {
                     }
 		}
 
-		void flush(memory_type &mem)
-		{
-			for (size_t i = 0; i < num_entries * num_ways; i++) {
-				// TODO - flush this line to memory
-				cache_key[i] = cache_entry_t();
-			}
-		}
-
-		void flush(memory_type &mem, UX pdid)
-		{
-			for (size_t i = 0; i < num_entries * num_ways; i++) {
-				if (cache_key[i].pdid != pdid) continue;
-				// TODO - flush this line to memory
-				cache_key[i] = cache_entry_t();
-			}
-		}
-
-		void flush(memory_type &mem, UX pdid, UX asid)
-		{
-			for (size_t i = 0; i < num_entries * num_ways; i++) {
-				if (cache_key[i].pdid != pdid && cache_key[i].asid != asid) continue;
-				// TODO - flush this line to memory
-				cache_key[i] = cache_entry_t();
-			}
-		}
-                
-                //Update all cache entries' LRU counters in the set, except for the most recently accessed item
-                //The caller must set the most recently accessed LRU_counter to 0.
+                /*
+                *Updates all cache entries' LRU counters in the set, except for the most recently accessed item
+                *The caller must set the most recently accessed LRU_counter to 0.
+                *
+                *@param index_for_set is the index of the set for the cache_key (unshifted to account for associativity)
+                *@param entry_to_skip is a pointer to the entry that was recently accessed, and does not need to have its LRU counter updated.
+                *
+                */
                 void update_LRU_counters(UX index_for_set, cache_entry_t *entry_to_skip){
                     index_for_set <<= num_ways_shift;
                     for(size_t i = 0; i < num_ways; i++)
@@ -192,20 +172,35 @@ namespace riscv {
                             cache_key[index_for_set + i].LRU_count++;
                 }
 
-                //Go through the line and load/store the contents for each element in the cache line.
+                /*
+                *Go through the entire cache line and load/store every corresponding memory address into/from memory.
+                *
+                *@param UX mpa is the machine physical address for the line
+                *@param signifies the operation. This must be 'S' (store) or 'L' (load).
+                *@param index_for_entry is the index of the block within the cache_key array. 
+                *index_for_entry is left shifted cache_line_shift times in this function to load/store each mem address's values from/to the cache_data array.
+                */
                 void load_or_store_into_mem(UX mpa, u8 op, UX index_for_entry){
                     UX mpa_masked = mpa & cache_line_mask;
                     UX index_for_data, offset;
-                    //Traverse the cache line forward. Store the data corresponding to each address into memory.
+                    //Traverse the cache line forward. Load/Store the data corresponding to each address into memory.
                     for(index_for_data = index_for_entry << cache_line_shift, offset = 0  
                         ; offset <= cache_line_offset_mask
                         ; index_for_data++, offset++, mpa_masked++)
                         op == 'S' ? mem->store(mpa_masked,cache_data[index_for_data]) : mem->load(mpa_masked,cache_data[index_for_data]);
                 }
                 
-                //Given an mpa, access the cache to find the corresponding cache_entry, if it exists.
-                //val will be written to the cache if op is 'S', otherwise the cache will load if the op is 'L'
-                //The caller must access the TLB and translate the UX va to UX mpa and provide it to this function.
+                /*
+                *Given an mpa, access the cache to find the corresponding cache_entry, if it exists. 
+                *If it's not there, main memory will be accessed to supply it.
+                *
+                *@param mpa is the machine physical address
+                *@param op is the operation that will be performed. op can only be 'S' (store) or 'L' (load).
+                *@param val is the value that will be stored into memory at the specified address. This variable is ignored on a load.
+                *@precondition The caller must access the TLB and translate the UX va to UX mpa and provide it to this function.
+                *@return the value that was stored/loaded into the cache is returned from where it is stored in the cache_data array.
+                *
+                */
                 u8 access_cache(UX mpa, u8 op, u8 val = 0){
                     //Lookup the mpa in the cache
                     std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
@@ -213,7 +208,6 @@ namespace riscv {
                     UX index_for_data = ((index_for_entry << cache_line_shift) | (mpa & cache_line_offset_mask)); 
                     //Check for a hit
                     if(ent->status == cache_line_hit){
-                        printf("We got a hit!\n");
                         //Hit was found, set the status to filled. 
                         ent->status = cache_line_filled;
                         last_access = cache_line_hit;
@@ -221,7 +215,6 @@ namespace riscv {
 
                     //No hit was found, evict a block
                     else if(ent->status == cache_line_must_evict){
-                        printf("We have a miss! We must evict a block.\n");
                         if(write_policy == cache_write_back){
                             //If the line is dirty, write its contents to mem
                             if(ent->state == cache_state_modified){
@@ -230,7 +223,7 @@ namespace riscv {
                             }
                             //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
                             ent->LRU_count = 0;
-                            update_LRU_counters(mpa & num_entries_mask, ent);
+                            update_LRU_counters(ent->pcln & num_entries_mask, ent);
                         }
                         //Load the block from memory into the cache.
                         load_or_store_into_mem(mpa, 'L', index_for_entry); 
@@ -241,7 +234,6 @@ namespace riscv {
                     }
                     //No hit was found, but an empty line was found.
                     else if(ent->status == cache_line_empty){
-                        printf("We have a miss! We must fill an empty block\n");
                         load_or_store_into_mem(mpa,'L', index_for_entry);
                         ent->pcln = mpa >> cache_line_shift;
                         ent->ppn = ent->pcln >> num_entries_shift;
@@ -263,9 +255,14 @@ namespace riscv {
                     return cache_data[index_for_data];
                 }
 
-		// cache line is virtually indexed but physically tagged.
-		// Returns a cache line entry that could be a hit, line to evict, or empty line.
-                // Also returns the index in cache_key where that entry is found.
+		/*
+                * Performs a lookup in the cache to determine if there is a cache line corresponding to the provided mpa.
+                *
+                * @param mpa is the machine physical address that is being looked up.
+		* @return Returns a cache line entry that is marked as a hit, line to evict, or empty line.
+                * @return also returns the index in cache_key where that entry is found.
+                *
+                */
                 std::pair<cache_entry_t*,UX> lookup_cache_line(UX mpa)
 		{
                     //Variables to record entry, position, and misc data as we search the set
@@ -277,7 +274,7 @@ namespace riscv {
                     UX pcln = mpa >> cache_line_shift;
 		    UX entry = pcln & num_entries_mask;
                     UX ppn = pcln >> num_entries_shift;
-
+                    
                     for (size_t i = 0; i < num_ways; i++) {
                         //Index to lookup in cache_key
                         UX index = ((entry << num_ways_shift) + i);
@@ -285,7 +282,7 @@ namespace riscv {
                         cache_entry_t *ent = cache_key + index;
 			//Check if hit
                         if (ent->ppn == ppn) {
-			    ent->status = cache_line_hit;
+                            ent->status = cache_line_hit;
                             return std::make_pair(ent,index);
 			}
                         //Record an empty block if there is one available. This may be used if we cannot find a hit.
@@ -310,18 +307,6 @@ namespace riscv {
                         line_to_evict->status = cache_line_must_evict;
                         return std::make_pair(line_to_evict,maxLRUIndex);
                     }
-		}
-
-		// caller got a cache miss or invalid ppn from TLB and wants to allocate
-		cache_entry_t* alloc_cache_line(memory_type &mem, UX pdid, UX asid, UX va)
-		{
-			// TODO - choose a way, if there is no free way, flush and allocate
-		}
-
-		// caller got a cache line with an invalid ppn and wants to invalidate
-		void invalidate_cache_line(memory_type &mem, cache_entry_t *ent)
-		{
-			// TODO - flush to memory and invalidate cache line
 		}
 
 	};
