@@ -26,6 +26,9 @@
 #include <deque>
 #include <map>
 #include <thread>
+#include <mutex>
+#include <chrono>
+#include <condition_variable>
 #include <atomic>
 #include <type_traits>
 
@@ -64,7 +67,7 @@
 #include "processor-logging.h"
 #include "processor-base.h"
 #include "processor-impl.h"
-#include "user-memory.h"
+#include "mmu-memory.h"
 #include "tlb-soft.h"
 #include "mmu-soft.h"
 #include "interp.h"
