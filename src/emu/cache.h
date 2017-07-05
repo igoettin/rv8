@@ -141,8 +141,6 @@ namespace riscv {
                 UX write_policy;
 		UX last_access;
                 
-		// TODO - map cache index and data into the machine address space with user_memory::add_segment
-
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
 
