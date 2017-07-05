@@ -11,14 +11,13 @@ namespace riscv {
 	/*
 	 * cache_state
 	 */
-
 	enum cache_state {
-		cache_state_modified  = 0b011,                   /* only copy, modified */
-		cache_state_owned     = 0b110,                   /* several copies, modify permission */
-		cache_state_exclusive = 0b010,                   /* only copy, unmodified */
-		cache_state_shared    = 0b100,                   /* several copies, no modify permission */
-		cache_state_invalid   = 0b000,                   /* not valid, must be fetched */
-		cache_state_mask      = 0b111,
+	    cache_state_modified  = 0b011,                   /* only copy, modified */
+	    cache_state_owned     = 0b110,                   /* several copies, modify permission */
+	    cache_state_exclusive = 0b010,                   /* only copy, unmodified */
+	    cache_state_shared    = 0b100,                   /* several copies, no modify permission */
+	    cache_state_invalid   = 0b000,                   /* not valid, must be fetched */
+	    cache_state_mask      = 0b111,
 	};
         
         //Enumerated types to define the status a cache line is in during a lookup.
@@ -306,8 +305,6 @@ namespace riscv {
 
 	};
 
-
-        
 	template <const size_t cache_size, const size_t cache_ways, const size_t cache_line_size>
 	using tagged_cache_rv32 = tagged_cache<param_rv32,cache_size,cache_ways,cache_line_size>;
 
