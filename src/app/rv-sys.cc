@@ -89,6 +89,8 @@
 #include "processor-priv-1.9.h"
 #include "debug-cli.h"
 #include "processor-runloop.h"
+#include "cache.h"
+#include "mmu-soft-cache.h"
 
 #if defined (ENABLE_GPERFTOOL)
 #include "gperftools/profiler.h"
@@ -100,7 +102,8 @@ using namespace riscv;
 
 using priv_emulator_rv32imafdc = processor_runloop<processor_privileged<processor_rv32imafdc_model<decode,processor_priv_rv32imafd,mmu_soft_rv32>>>;
 using priv_emulator_rv64imafdc = processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_rv64>>>;
-
+using priv_cache_emulator_rv32imafdc = processor_runloop<processor_privileged<processor_rv32imafdc_model<decode,processor_priv_rv32imafd,mmu_soft_cache_rv32>>>;
+using priv_cache_emulator_rv64imafdc = processor_runloop<processor_privileged<processor_rv64imafdc_model<decode,processor_priv_rv64imafd,mmu_soft_cache_rv64>>>;
 
 /* environment variables */
 
@@ -147,6 +150,7 @@ struct rv_emulator
 	addr_t map_physical = 0;
 	s64 ram_boot = 0;
 	uint64_t initial_seed = 0;
+        bool use_cache = false;
 
 	std::vector<std::string> host_cmdline;
 	std::vector<std::string> host_env;
@@ -201,6 +205,9 @@ struct rv_emulator
 	{
 		cmdline_option options[] =
 		{
+                        { "-C", "--cache-sim", cmdline_arg_type_none,
+                                "Simulate cache",
+                                [&](std::string s) { return (use_cache = true);}},
 			{ "-l", "--log-instructions", cmdline_arg_type_none,
 				"Log Instructions",
 				[&](std::string s) { return (proc_logs |= (proc_log_inst | proc_log_trap)); } },
@@ -403,12 +410,21 @@ struct rv_emulator
 
 		/* execute */
 		if (ram_boot == 0) {
-			switch (elf.ei_class) {
-				case ELFCLASS32:
-					start_priv<priv_emulator_rv32imafdc>(); break;
-				case ELFCLASS64:
-					start_priv<priv_emulator_rv64imafdc>(); break;
+		    if(use_cache) {
+                        switch(elf.ei_class){
+                            case ELFCLASS32:
+                                start_priv<priv_emulator_rv32imafdc>(); break;
+                            case ELFCLASS64:
+                                start_priv<priv_emulator_rv64imafdc>(); break;
+                        }
+                    }else{
+                        switch (elf.ei_class) {
+			    case ELFCLASS32:
+				start_priv<priv_emulator_rv32imafdc>(); break;
+			    case ELFCLASS64:
+				start_priv<priv_emulator_rv64imafdc>(); break;
 			}
+                    }
 		}
 		else if (ram_boot == 32) {
 			start_priv<priv_emulator_rv32imafdc>();

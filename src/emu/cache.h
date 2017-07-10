@@ -102,7 +102,7 @@ namespace riscv {
 
 	template <typename PARAM, const size_t cache_size, const size_t cache_ways, const size_t cache_line_size,
 		typename MEMORY = user_memory<typename PARAM::UX>> 
-	struct tagged_cache
+	struct tagged_cache : MEMORY
 	{
 		static_assert(ispow2(cache_size), "cache_size must be a power of 2");
 		static_assert(ispow2(cache_ways), "cache_ways must be a power of 2");
@@ -141,18 +141,27 @@ namespace riscv {
 		UX last_access;
                 
 		cache_entry_t cache_key[num_entries * num_ways];
-		u8 cache_data[cache_size];
+		UX cache_data[cache_size];
 
 		tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) 
 		{
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
                     for (size_t i = 0; i < num_entries * num_ways; i++) {
-			cache_key[i].data = cache_data + i * cache_line_size;
                         cache_key[i].status = cache_line_empty;
                         cache_key[i].LRU_count = 0;
 			cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
 		}
+
+                tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
+                    mem = std::make_shared<MEMORY>();
+                    static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
+                    for(size_t i = 0; i < num_entries * num_ways; i++) {
+                        cache_key[i].status = cache_line_empty;
+                        cache_key[i].LRU_count = 0;
+                        cache_key[i].state = cache_state_shared;
+                    }
+                }
 
                 /*
                 *Updates all cache entries' LRU counters in the set, except for the most recently accessed item
@@ -187,6 +196,14 @@ namespace riscv {
                         op == 'S' ? mem->store(mpa_masked,cache_data[index_for_data]) : mem->load(mpa_masked,cache_data[index_for_data]);
                 }
                 
+                UX load(UX mpa, UX val = 0){
+                    return access_cache(mpa, 'L', val);
+                }
+
+                UX store(UX mpa, UX val){
+                    return access_cache(mpa, 'S', val);
+                }
+
                 /*
                 *Given an mpa, access the cache to find the corresponding cache_entry, if it exists. 
                 *If it's not there, main memory will be accessed to supply it.
@@ -198,7 +215,7 @@ namespace riscv {
                 *@return the value that was stored/loaded into the cache is returned from where it is stored in the cache_data array.
                 *
                 */
-                u8 access_cache(UX mpa, u8 op, u8 val = 0){
+                UX access_cache(UX mpa, u8 op, UX val = 0){
                     //Lookup the mpa in the cache
                     std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
                     cache_entry_t * ent = result.first; UX index_for_entry = result.second;
