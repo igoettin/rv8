@@ -205,7 +205,7 @@ struct rv_emulator
 	{
 		cmdline_option options[] =
 		{
-                        { "-C", "--cache-sim", cmdline_arg_type_none,
+                        { "-a", "--cache-sim", cmdline_arg_type_none,
                                 "Simulate cache",
                                 [&](std::string s) { return (use_cache = true);}},
 			{ "-l", "--log-instructions", cmdline_arg_type_none,
@@ -369,7 +369,6 @@ struct rv_emulator
 			/* Add 1GB RAM to the mmu */
 			proc.mmu.mem->add_ram(default_ram_base, default_ram_size);
 		}
-
 		/* Initialize interpreter */
 		proc.init();
 		proc.reset(); /* Reset code calls mapped ROM image */
@@ -384,7 +383,6 @@ struct rv_emulator
 #if defined (ENABLE_GPERFTOOL)
 		ProfilerStart("test-emulate.out");
 #endif
-
 		/*
 		 * Run the CPU until it halts
 		 *
@@ -392,7 +390,6 @@ struct rv_emulator
 		 */
 		proc.run(proc.log & proc_log_ebreak_cli
 			? exit_cause_cli : exit_cause_continue);
-
 #if defined (ENABLE_GPERFTOOL)
 		ProfilerStop();
 #endif
@@ -407,15 +404,15 @@ struct rv_emulator
 			panic("error: x86 host without RDTSCP. Recompile with -DX86_NO_RDTSCP");
 		}
 		#endif
-
-		/* execute */
+		
+                /* execute */
 		if (ram_boot == 0) {
 		    if(use_cache) {
                         switch(elf.ei_class){
                             case ELFCLASS32:
-                                start_priv<priv_emulator_rv32imafdc>(); break;
+                                start_priv<priv_cache_emulator_rv32imafdc>(); break;
                             case ELFCLASS64:
-                                start_priv<priv_emulator_rv64imafdc>(); break;
+                                start_priv<priv_cache_emulator_rv64imafdc>(); break;
                         }
                     }else{
                         switch (elf.ei_class) {

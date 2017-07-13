@@ -141,7 +141,7 @@ namespace riscv {
 		UX last_access;
                 
 		cache_entry_t cache_key[num_entries * num_ways];
-		UX cache_data[cache_size];
+		u8 cache_data[cache_size];
 
 		tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) 
 		{
@@ -152,7 +152,6 @@ namespace riscv {
 			cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
 		}
-
                 tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
                     mem = std::make_shared<MEMORY>();
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
@@ -195,13 +194,87 @@ namespace riscv {
                         ; index_for_data++, offset++, mpa_masked++)
                         op == 'S' ? mem->store(mpa_masked,cache_data[index_for_data]) : mem->load(mpa_masked,cache_data[index_for_data]);
                 }
-                
-                UX load(UX mpa, UX val = 0){
-                    return access_cache(mpa, 'L', val);
+
+                template<typename T> 
+                buserror_t load_c(UX mpa, T & val){
+                    //printf("Loading from addr %llx\n",mpa);
+                    access_cache(mpa, 'L', val);
+                    return 0;
                 }
 
-                UX store(UX mpa, UX val){
-                    return access_cache(mpa, 'S', val);
+                template<typename T>
+                buserror_t store_c(UX mpa, T val){
+                    //printf("Storing from addr %llx\n",mpa);
+                    access_cache(mpa, 'S', val);
+                    return 0;
+                }
+                
+                /*
+                *Loads a value from the cache_data array. Possible value types are u8, u16, u32, and u64.
+                *
+                *@param index_for_data is the index for the first byte in the cache_data array.
+                *@param val will be updated with the value loaded from the cache_data array.
+                *
+                */
+                template<typename T>
+                void load_val(UX index_for_data, T & val){
+                    T new_val = 0;
+                    size_t shift_amt = 0;
+                    //Take each byte in the cache_data array and shift it over byte(s) amount
+                    //so that the full value is created.
+                    for(size_t i = 0; i < sizeof(val); i++){
+                        new_val += (cache_data[index_for_data + i] << shift_amt);
+                        shift_amt += 8;
+                    }
+                    val = new_val;
+                }
+                
+                /*
+                *Stores a value into the cache_data array. Possible value types are u8, u16, u32, and u64.
+                *
+                *@param mpa is the machine physical address. This is needed in the event write-through policy is used.
+                *@param index_for_data is the index for the first byte in the cache_data array.
+                *@param val is the value that will be stored into the cache_data array. One byte at a time.
+                *
+                */
+                template<typename T>
+                void store_val(UX mpa, UX index_for_data, T val){
+                    u8 cast_val_8 = *reinterpret_cast<u8*>(&val);
+                    u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
+                    u32 cast_val_32 = *reinterpret_cast<u32*>(&val);
+                    u64 cast_val_64 = *reinterpret_cast<u64*>(&val);
+                    //Assign current_byte to val so that only a byte is retrieved,
+                    //store that, then right shift val a byte amount to get the next byte. 
+                    if(sizeof(val) == 1)
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cache_data[index_for_data + i] = cast_val_8;
+                            if(write_policy == cache_write_through)
+                                mem->store(mpa++,cast_val_8);
+                            cast_val_8 >>= 8;
+                            u8 memVal;
+                            mem->load(mpa, memVal);
+                        }
+                    else if(sizeof(val) == 2)
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cache_data[index_for_data + i] = cast_val_16;
+                            if(write_policy == cache_write_through)
+                                mem->store(mpa++,cast_val_16);
+                            cast_val_16 >>= 8;
+                        }
+                    else if(sizeof(val) == 4)
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cache_data[index_for_data + i] = cast_val_32;
+                            if(write_policy == cache_write_through)
+                                mem->store(mpa++,cast_val_32);
+                            cast_val_32 >>= 8;
+                        }
+                    else
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cache_data[index_for_data + i] = cast_val_64;
+                            if(write_policy == cache_write_through)
+                                mem->store(mpa++,cast_val_64);
+                            cast_val_64 >>= 8;
+                        }
                 }
 
                 /*
@@ -215,7 +288,8 @@ namespace riscv {
                 *@return the value that was stored/loaded into the cache is returned from where it is stored in the cache_data array.
                 *
                 */
-                UX access_cache(UX mpa, u8 op, UX val = 0){
+                template<typename T>
+                void access_cache(UX mpa, u8 op, T & val){
                     //Lookup the mpa in the cache
                     std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
                     cache_entry_t * ent = result.first; UX index_for_entry = result.second;
@@ -235,7 +309,7 @@ namespace riscv {
                             ent->state = cache_state_shared; 
                         }
                         //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
-                        ent ->LRU_count = 0;
+                        ent->LRU_count = 0;
                         update_LRU_counters(ent->pcln & num_entries_mask, ent);
                         //Load the block from memory into the cache.
                         load_or_store_into_mem(mpa, 'L', index_for_entry); 
@@ -253,18 +327,19 @@ namespace riscv {
                         last_access = cache_line_empty;
                     }
                     //If write through policy is used and mem access is a store,
-                    //store the contents of the mpa directly to memory.
+                    //store the contents of the mpa directly to cache and main mem.
                     if(op == 'S' && write_policy == cache_write_through){
-                        cache_data[index_for_data] = val;
-                        mem->store(mpa,val);
+                        store_val(mpa,index_for_data,val);
                     }
                     //If write back policy is used and mem access is a store,
-                    //set the cache state to modified (aka dirty)
-                    if(op == 'S' && write_policy == cache_write_back){
+                    //set the cache state to modified (aka dirty) and store to cache only
+                    else if(op == 'S' && write_policy == cache_write_back){
                         ent->state = cache_state_modified;
-                        cache_data[index_for_data] = val;
+                        store_val(mpa,index_for_data,val);
                     }
-                    return cache_data[index_for_data];
+                    //If loading, load from the cache_data array into val;
+                    else
+                        load_val(index_for_data,val);
                 }
 
 		/*

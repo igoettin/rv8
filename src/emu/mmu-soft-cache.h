@@ -30,8 +30,8 @@ namespace riscv {
 
 		/* MMU constructor */
 
-		mmu_soft_cache() : mem(std::make_shared<CACHE>()){}
-		//mmu_soft(memory_type _mem_main) : mem_main(_mem_main) {mem(mem_main);}
+		mmu_soft_cache() : mem(std::make_shared<CACHE>(cache_write_through)){}
+		mmu_soft_cache(user_memory<UX> _mem_main) : mem(std::make_shared<CACHE>(_mem_main), cache_write_through){}
 
 		/* MMU methods */
 
@@ -192,7 +192,6 @@ namespace riscv {
 		template <typename P, typename T, const mmu_op op = op_load>
 		void load(P &proc, UX va, T &val)
 		{
-
 			typename tlb_type::tlb_entry_t* tlb_ent = nullptr;
 
 			/* raise exception if address is misalligned */
@@ -206,7 +205,7 @@ namespace riscv {
 			if (!mpa) return;
 
 			/* check read permissions and perform load */
-			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load(mpa, val))) {
+			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load_c(mpa, val))) {
 				proc.raise(rv_cause_fault_load, va);
 			}
 		}
@@ -216,8 +215,8 @@ namespace riscv {
 		void store(P &proc, UX va, T val)
 		{
 			typename tlb_type::tlb_entry_t* tlb_ent = nullptr;
-
-			/* raise exception if address is misalligned */
+			
+                        /* raise exception if address is misalligned */
 			if (unlikely(misaligned<T>(va))) {
 				proc.raise(rv_cause_misaligned_store, va);
 				return;
@@ -226,9 +225,9 @@ namespace riscv {
 			/* translate to physical (raises exception on fault) */
 			addr_t mpa = translate_addr<P,op>(proc, va, tlb_ent);
 			if (!mpa) return;
-
-			/* check write permissions and perform store */
-			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store(mpa, val))) {
+			
+                        /* check write permissions and perform store */
+			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store_c(mpa, val))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
 		}
@@ -421,8 +420,8 @@ namespace riscv {
 	typedef pma_table<u32,8> pma_table_rv32;
 	typedef pma_table<u64,8> pma_table_rv64;
 
-        typedef tagged_cache_rv32<16384,4,256> cache_type_rv32;
-        typedef tagged_cache_rv64<16384,4,256> cache_type_rv64;
+        typedef tagged_cache_rv32<32768,8,64> cache_type_rv32;
+        typedef tagged_cache_rv64<32768,8,64> cache_type_rv64;
 
 	using mmu_soft_cache_rv32 = mmu_soft_cache<u32,tlb_type_rv32,pma_table_rv32,cache_type_rv32>;
 	using mmu_soft_cache_rv64 = mmu_soft_cache<u64,tlb_type_rv64,pma_table_rv64,cache_type_rv64>;
