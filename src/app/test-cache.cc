@@ -370,9 +370,25 @@ int main(int argc, char *argv[])
     //////////////////////////////////////
     //Tests for values larger than one byte
     /////////////////////////////////////
-
-
-    
+    u16 temp_16, temp_16_2;
+    u32 temp_32, temp_32_2;
+    u64 temp_64, temp_64_2;
+    printf("Running tests for values larger than one byte...\n");
+    mem->clear_segments();
+    mem->add_ram(0x20000, 0x40000000LL - 0x20000);
+    tagged_cache<param_rv64,32768,8,64> cache_t(mem);
+    temp_16 = 0x2311;
+    cache_t.access_cache(0x353921, 'S', temp_16);
+    cache_t.access_cache(0x353921, 'L', temp_16_2);
+    assert(temp_16_2 == 0x2311);
+    temp_32 = 0x821af321;
+    cache_t.access_cache(0x2abcde, 'S', temp_32);
+    cache_t.access_cache(0x2abcde, 'L', temp_32_2);
+    assert(temp_32_2 == 0x821af321);
+    temp_64 = 0x113a12481921a113;
+    cache_t.access_cache(0x6421aa, 'S', temp_64);
+    cache_t.access_cache(0x6421aa, 'L', temp_64_2);
+    assert(temp_64_2 == temp_64);
     printf("All tests passed!\n");
 }       
 

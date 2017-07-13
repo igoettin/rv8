@@ -196,15 +196,15 @@ namespace riscv {
                 }
 
                 template<typename T> 
-                buserror_t load_c(UX mpa, T & val){
-                    //printf("Loading from addr %llx\n",mpa);
+                buserror_t load(UX mpa, T & val){
+                    //printf("Loading from addr: %llx\n",mpa);
                     access_cache(mpa, 'L', val);
                     return 0;
                 }
 
                 template<typename T>
-                buserror_t store_c(UX mpa, T val){
-                    //printf("Storing from addr %llx\n",mpa);
+                buserror_t store(UX mpa, T val){
+                    //printf("Storing from addr: %llx\n",mpa);
                     access_cache(mpa, 'S', val);
                     return 0;
                 }
@@ -223,7 +223,7 @@ namespace riscv {
                     //Take each byte in the cache_data array and shift it over byte(s) amount
                     //so that the full value is created.
                     for(size_t i = 0; i < sizeof(val); i++){
-                        new_val += (cache_data[index_for_data + i] << shift_amt);
+                        new_val += ((u64)cache_data[index_for_data + i] << shift_amt);
                         shift_amt += 8;
                     }
                     val = new_val;
@@ -245,34 +245,33 @@ namespace riscv {
                     u64 cast_val_64 = *reinterpret_cast<u64*>(&val);
                     //Assign current_byte to val so that only a byte is retrieved,
                     //store that, then right shift val a byte amount to get the next byte. 
-                    if(sizeof(val) == 1)
-                        for(size_t i = 0; i < sizeof(val); i++){
-                            cache_data[index_for_data + i] = cast_val_8;
+                    if(sizeof(val) == 1){
+                            cache_data[index_for_data] = cast_val_8;
                             if(write_policy == cache_write_through)
                                 mem->store(mpa++,cast_val_8);
-                            cast_val_8 >>= 8;
-                            u8 memVal;
-                            mem->load(mpa, memVal);
-                        }
+                    }
                     else if(sizeof(val) == 2)
                         for(size_t i = 0; i < sizeof(val); i++){
-                            cache_data[index_for_data + i] = cast_val_16;
+                            u8 current_byte = cast_val_16;
+                            cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through)
-                                mem->store(mpa++,cast_val_16);
+                                mem->store(mpa++,current_byte);
                             cast_val_16 >>= 8;
                         }
                     else if(sizeof(val) == 4)
                         for(size_t i = 0; i < sizeof(val); i++){
-                            cache_data[index_for_data + i] = cast_val_32;
+                            u8 current_byte = cast_val_32;
+                            cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through)
-                                mem->store(mpa++,cast_val_32);
+                                mem->store(mpa++,current_byte);
                             cast_val_32 >>= 8;
                         }
                     else
                         for(size_t i = 0; i < sizeof(val); i++){
-                            cache_data[index_for_data + i] = cast_val_64;
+                            u8 current_byte = cast_val_64;
+                            cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through)
-                                mem->store(mpa++,cast_val_64);
+                                mem->store(mpa++,current_byte);
                             cast_val_64 >>= 8;
                         }
                 }

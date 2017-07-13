@@ -205,7 +205,7 @@ namespace riscv {
 			if (!mpa) return;
 
 			/* check read permissions and perform load */
-			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load_c(mpa, val))) {
+			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load(mpa, val))) {
 				proc.raise(rv_cause_fault_load, va);
 			}
 		}
@@ -227,7 +227,7 @@ namespace riscv {
 			if (!mpa) return;
 			
                         /* check write permissions and perform store */
-			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store_c(mpa, val))) {
+			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store(mpa, val))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
 		}
