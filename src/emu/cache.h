@@ -211,12 +211,12 @@ namespace riscv {
                     if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
                         mem->load(mpa, val);
                     else {
-                        printf("Loading from cache at mpa: %llx...\n",mpa);
+                        //printf("Loading from cache at mpa: %llx...\n",mpa);
                         u64 memVal;
                         mem->load(mpa,memVal);
                         access_cache(mpa, 'L', val);
-                        printf("Value loaded from mem directly was %llx for mpa %llx\n",memVal,mpa);
-                        printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                        //printf("Value loaded from mem directly was %llx for mpa %llx\n",memVal,mpa);
+                        //printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
                     }
                     return 0;
                 }
@@ -226,12 +226,12 @@ namespace riscv {
                     if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
                         mem->store(mpa,val);
                     else {
-                        printf("Storing val %llx from mpa %llx into cache",val,mpa);
+                        //printf("Storing val %llx from mpa %llx into cache",val,mpa);
                         access_cache(mpa, 'S', val);
-                        printf("Done storing into cache\n");
+                        //printf("Done storing into cache\n");
                         u64 memVal;
                         mem->load(mpa,memVal);
-                        printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
+                        //printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
                     }
                     return 0;
                 }
@@ -275,11 +275,11 @@ namespace riscv {
                     if(sizeof(val) == 1){
                             cache_data[index_for_data] = cast_val_8;
                             if(write_policy == cache_write_through){
-                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", cast_val_8, mpa);
+                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", cast_val_8, mpa);
                                 mem->store(mpa++,cast_val_8);
                                 u8 memVal;
                                 mem->load(mpa - 1, memVal);
-                                printf("In store_val, memory now has val %llx for mpa %llx\n",cast_val_8, mpa-1);
+                                //printf("In store_val, memory now has val %llx for mpa %llx\n",cast_val_8, mpa-1);
 
                             }
                     }
@@ -288,11 +288,11 @@ namespace riscv {
                             u8 current_byte = cast_val_16;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
+                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
                                 u8 memVal;
                                 mem->load(mpa - 1, memVal);
-                                printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
+                                //printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
                             }
                             cast_val_16 >>= 8;
                         }
@@ -301,11 +301,11 @@ namespace riscv {
                             u8 current_byte = cast_val_32;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
+                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
                                 u8 memVal;
                                 mem->load(mpa - 1, memVal);
-                                printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
+                                //printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
                             }
                             cast_val_32 >>= 8;
                         }
@@ -314,11 +314,11 @@ namespace riscv {
                             u8 current_byte = cast_val_64;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
+                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
                                 u64 memVal;
                                 mem->load(mpa - 1, memVal);
-                                printf("In store_val, memory now has val %llx for mpa %llx\n",memVal, mpa-1);
+                                //printf("In store_val, memory now has val %llx for mpa %llx\n",memVal, mpa-1);
                             }
                             cast_val_64 >>= 8;
                         }
@@ -380,7 +380,7 @@ namespace riscv {
                         store_val(mpa,index_for_data,val);
                         u8 memVal;
                         mem->load(mpa,memVal);
-                        printf("After accessing cache and storing, val is %llx for mpa %llx\n",memVal,mpa);
+                        //printf("After accessing cache and storing, val is %llx for mpa %llx\n",memVal,mpa);
                     }
                     //If write back policy is used and mem access is a store,
                     //set the cache state to modified (aka dirty) and store to cache only
