@@ -376,7 +376,9 @@ int main(int argc, char *argv[])
     printf("Running tests for values larger than one byte...\n");
     mem->clear_segments();
     mem->add_ram(0x20000, 0x40000000LL - 0x20000);
-    tagged_cache<param_rv64,32768,8,64> cache_t(mem);
+    tagged_cache<param_rv64,32768,8,64> cache_t(mem,cache_write_through);
+    cache_t.default_ram_base = 0x20000;
+    cache_t.default_ram_size = 0x40000000LL - 0x20000;
     temp_16 = 0x2311;
     cache_t.access_cache(0x353921, 'S', temp_16);
     cache_t.access_cache(0x353921, 'L', temp_16_2);
@@ -386,9 +388,24 @@ int main(int argc, char *argv[])
     cache_t.access_cache(0x2abcde, 'L', temp_32_2);
     assert(temp_32_2 == 0x821af321);
     temp_64 = 0x113a12481921a113;
-    cache_t.access_cache(0x6421aa, 'S', temp_64);
-    cache_t.access_cache(0x6421aa, 'L', temp_64_2);
+    cache_t.store_c(0x6421aa, temp_64);
+    cache_t.load_c(0x6421aa, temp_64_2);
     assert(temp_64_2 == temp_64);
+    temp_64 = 0x0807060504030201;
+    u8 current_byte = 0x1;
+    u64 mpa = 0x6421aa;
+    for(int i = 0; i < sizeof(temp_64); i++){
+        cache_t.store_c(mpa++,current_byte++);
+    }
+    cache_t.load_c(0x6421aa, temp_64_2);
+    assert(temp_64 == temp_64_2);
+    u64 temp_64_3;
+    cache_t.load_c(0x6421aa,temp_64_3);
+    printf("temp_64_3 is %llx\n",temp_64_3);
+    assert(temp_64_2 == temp_64_3);
+    temp_64_3 = 0;
+    mem->load(0x6421aa,temp_64_3);
+    assert(temp_64_3 == temp_64_3);
     printf("All tests passed!\n");
 }       
 

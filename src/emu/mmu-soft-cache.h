@@ -8,11 +8,12 @@
 
 namespace riscv {
 
-	template <typename UX, typename TLB, typename PMA, typename CACHE>
+	template <typename UX, typename TLB, typename PMA, typename CACHE, typename MEMORY = user_memory<UX>>
 	struct mmu_soft_cache
 	{
 		typedef TLB    tlb_type;
 		typedef PMA    pma_type;
+                typedef std::shared_ptr<MEMORY> memory_type;
 	        typedef std::shared_ptr<CACHE>  cache_type;
 
                 enum mmu_op {
@@ -26,12 +27,13 @@ namespace riscv {
 		tlb_type       l1_itlb;     /* L1 Instruction TLB */
 		tlb_type       l1_dtlb;     /* L1 Data TLB */
 		pma_type       pma;         /* PMA table */
-                cache_type     mem;       /* L1 Cache (replaces memory device) */
+                memory_type    mem;         /* memory device */
+                cache_type     cache;       /* L1 Cache */
 
 		/* MMU constructor */
 
-		mmu_soft_cache() : mem(std::make_shared<CACHE>(cache_write_through)){}
-		mmu_soft_cache(user_memory<UX> _mem_main) : mem(std::make_shared<CACHE>(_mem_main), cache_write_through){}
+		mmu_soft_cache() : mem(std::make_shared<MEMORY>()), cache(std::make_shared<CACHE>(mem,cache_write_through)){}
+		mmu_soft_cache(memory_type mem) : mem(mem), cache(std::make_shared<CACHE>(mem,cache_write_through)){}
 
 		/* MMU methods */
 
@@ -117,11 +119,12 @@ namespace riscv {
 			if (!mpa) return 0;
 
 			/* check execute permissions and fetch first 32 bits */
+                        printf("Loading instruction_32....\n");
 			if (unlikely(fetch_access_fault(proc, proc.mode, tlb_ent) || mem->load(mpa, inst_32))) {
 				proc.raise(rv_cause_fault_fetch, pc);
 				return 0;
 			}
-
+                        printf("Loaded instruction_32 %llx from mpa %llx\n", inst_32, mpa);
 			/* record pc histogram using machine physical address */
 			if (proc.log & proc_log_hist_pc) {
 				proc.histogram_add_pc(mpa);
@@ -136,14 +139,16 @@ namespace riscv {
 				pc_offset = 4;
 			} else if ((inst & 0b111111) == 0b011111) {
 				if (unlikely(mem->load(mpa + 4, inst_16))) {
-					proc.raise(rv_cause_fault_fetch, pc);
+					printf("Loaded instruction_16 %llx from mpa + 4 %llx\n", inst_16, mpa+4);
+                                        proc.raise(rv_cause_fault_fetch, pc);
 					return 0;
 				}
 				inst |= inst_t(htole16(inst_16)) << 32;
 				pc_offset = 6;
 			} else if ((inst & 0b1111111) == 0b0111111) {
 				if (unlikely(mem->load(mpa + 4, inst_32))) {
-					proc.raise(rv_cause_fault_fetch, pc);
+					printf("Loaded instruction_32 %llx from mpa + 4 %llx\n", inst_32, mpa+4);
+                                        proc.raise(rv_cause_fault_fetch, pc);
 					return 0;
 				}
 				inst |= inst_t(htole32(inst_32)) << 32;
@@ -174,18 +179,23 @@ namespace riscv {
 			/* TODO - plumb amo interface into the memory bus */
 
 			/* Check read permissions and perform load */
+                        printf("Loading amo val1..");
 			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent) || mem->load(mpa, val1))) {
 				proc.raise(rv_cause_fault_store, va);
 				return;
 			}
+                        printf("Loaded amo val1 %llx from mpa %llx\n",val1,mpa);
 
 			/* execute atomic op */
 			val2 = amo_fn<UX>(a_op, val1, val2);
 
 			/* Check write permissions and perform store */
+                        printf("Storing amo val2....\n");
 			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store(mpa, val2))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
+                        printf("Stored amo val2 %llx from mpa %llx\n",val2,mpa);
+
 		}
 
 		/* load */
@@ -205,9 +215,13 @@ namespace riscv {
 			if (!mpa) return;
 
 			/* check read permissions and perform load */
-			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load(mpa, val))) {
+                        printf("Loading generic value...\n");
+			printf("Before loading from memory, val is %llx\n",val);
+                        if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load(mpa, val))) {
 				proc.raise(rv_cause_fault_load, va);
 			}
+                        printf("Loaded generic value %llx from mpa %llx\n", val, mpa);
+
 		}
 
 		/* store */
@@ -225,11 +239,14 @@ namespace riscv {
 			/* translate to physical (raises exception on fault) */
 			addr_t mpa = translate_addr<P,op>(proc, va, tlb_ent);
 			if (!mpa) return;
-			
+		
+                        printf("Storing generic value...\n");
                         /* check write permissions and perform store */
-			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || mem->store(mpa, val))) {
+			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || cache->store_c(mpa, val))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
+                        printf("Stored generic value %llx from mpa %llx\n",val,mpa);
+
 		}
 
 		template <typename P> constexpr UX effective_mode(P &proc, const mmu_op op)
@@ -352,9 +369,14 @@ namespace riscv {
 				shift = PTM::bits * level + page_shift;
 				vpn = (va >> shift) & ((1ULL << PTM::bits) - 1);
 				pte_mpa = ppn + vpn * sizeof(pte_type);
+                                
 
+                                printf("Loading the PTE from memory...\n");
 				/* load the PTE from memory */
 				if (unlikely(mem->load(pte_mpa, *(typename PTM::size_type*)&pte))) goto fault;
+                                
+                                printf("Loading the PTE %llx from mem at pte_mpa %llx\n",*(typename PTM::size_type*)&pte,pte_mpa);
+
 
 				/* check if this is a pointer PTE */
 				if ((((pte.xu.val >> pte_shift_R) |
@@ -381,7 +403,9 @@ namespace riscv {
 						pte.val.flags |= ad_flags;
 						/* update PTE (note this reall needs to be atomic) */
 						if (unlikely(mem->store(pte_mpa, *(typename PTM::size_type*)&pte))) goto fault;
-					}
+					        printf("Updating PTE with a store of %llx with addr %llx\n",*(typename PTM::size_type*)&pte,pte_mpa);
+
+                                        }
 
 					if (proc.log & proc_log_pagewalk) {
 						debug("walk_page_table va=0x%llx sptbr=0x%llx, level=%d "

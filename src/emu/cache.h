@@ -111,7 +111,7 @@ namespace riscv {
 		typedef typename PARAM::UX UX;
 		typedef MEMORY memory_type;
 		typedef tagged_cache_entry<PARAM,cache_line_size> cache_entry_t;
-		
+                		
                 enum : UX {
 			size =                cache_size,
 			line_size =           cache_line_size,
@@ -140,28 +140,31 @@ namespace riscv {
                 UX write_policy;
 		UX last_access;
                 
+                //Arrays to hold cache entries and data
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
 
-		tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) 
-		{
+                //RAM size and base
+                uintmax_t default_ram_base = 0x80000000ULL;
+                uintmax_t default_ram_size = 0x40000000ULL;
+
+                tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) {
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
                     for (size_t i = 0; i < num_entries * num_ways; i++) {
                         cache_key[i].status = cache_line_empty;
                         cache_key[i].LRU_count = 0;
-			cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
+                        cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
-		}
+                }
                 tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
                     mem = std::make_shared<MEMORY>();
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
                     for(size_t i = 0; i < num_entries * num_ways; i++) {
-                        cache_key[i].status = cache_line_empty;
-                        cache_key[i].LRU_count = 0;
-                        cache_key[i].state = cache_state_shared;
+                    cache_key[i].status = cache_line_empty;
+                    cache_key[i].LRU_count = 0;
+                    cache_key[i].state = cache_state_shared;
                     }
                 }
-
                 /*
                 *Updates all cache entries' LRU counters in the set, except for the most recently accessed item
                 *The caller must set the most recently accessed LRU_counter to 0.
@@ -191,21 +194,45 @@ namespace riscv {
                     //Traverse the cache line forward. Load/Store the data corresponding to each address into memory.
                     for(index_for_data = index_for_entry << cache_line_shift, offset = 0  
                         ; offset <= cache_line_offset_mask
-                        ; index_for_data++, offset++, mpa_masked++)
-                        op == 'S' ? mem->store(mpa_masked,cache_data[index_for_data]) : mem->load(mpa_masked,cache_data[index_for_data]);
+                        ; index_for_data++, offset++, mpa_masked++){
+                        if(op == 'S') 
+                            mem->store(mpa_masked,cache_data[index_for_data]);  
+                        else{
+                            u8 loaded_val;
+                            mem->load(mpa_masked,loaded_val);
+                            //printf("loaded_val is %x\n");
+                            cache_data[index_for_data] = loaded_val;
+                        }
+                    }
                 }
 
                 template<typename T> 
-                buserror_t load(UX mpa, T & val){
-                    //printf("Loading from addr: %llx\n",mpa);
-                    access_cache(mpa, 'L', val);
+                buserror_t load_c(UX mpa, T & val){
+                    if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
+                        mem->load(mpa, val);
+                    else {
+                        printf("Loading from cache at mpa: %llx...\n",mpa);
+                        u64 memVal;
+                        mem->load(mpa,memVal);
+                        access_cache(mpa, 'L', val);
+                        printf("Value loaded from mem directly was %llx for mpa %llx\n",memVal,mpa);
+                        printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                    }
                     return 0;
                 }
 
                 template<typename T>
-                buserror_t store(UX mpa, T val){
-                    //printf("Storing from addr: %llx\n",mpa);
-                    access_cache(mpa, 'S', val);
+                buserror_t store_c(UX mpa, T val){
+                    if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
+                        mem->store(mpa,val);
+                    else {
+                        printf("Storing val %llx from mpa %llx into cache",val,mpa);
+                        access_cache(mpa, 'S', val);
+                        printf("Done storing into cache\n");
+                        u64 memVal;
+                        mem->load(mpa,memVal);
+                        printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
+                    }
                     return 0;
                 }
                 
@@ -247,33 +274,55 @@ namespace riscv {
                     //store that, then right shift val a byte amount to get the next byte. 
                     if(sizeof(val) == 1){
                             cache_data[index_for_data] = cast_val_8;
-                            if(write_policy == cache_write_through)
+                            if(write_policy == cache_write_through){
+                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", cast_val_8, mpa);
                                 mem->store(mpa++,cast_val_8);
+                                u8 memVal;
+                                mem->load(mpa - 1, memVal);
+                                printf("In store_val, memory now has val %llx for mpa %llx\n",cast_val_8, mpa-1);
+
+                            }
                     }
                     else if(sizeof(val) == 2)
                         for(size_t i = 0; i < sizeof(val); i++){
                             u8 current_byte = cast_val_16;
                             cache_data[index_for_data + i] = current_byte;
-                            if(write_policy == cache_write_through)
+                            if(write_policy == cache_write_through){
+                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
+                                u8 memVal;
+                                mem->load(mpa - 1, memVal);
+                                printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
+                            }
                             cast_val_16 >>= 8;
                         }
                     else if(sizeof(val) == 4)
                         for(size_t i = 0; i < sizeof(val); i++){
                             u8 current_byte = cast_val_32;
                             cache_data[index_for_data + i] = current_byte;
-                            if(write_policy == cache_write_through)
+                            if(write_policy == cache_write_through){
+                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
+                                u8 memVal;
+                                mem->load(mpa - 1, memVal);
+                                printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
+                            }
                             cast_val_32 >>= 8;
                         }
-                    else
+                    else{
                         for(size_t i = 0; i < sizeof(val); i++){
                             u8 current_byte = cast_val_64;
                             cache_data[index_for_data + i] = current_byte;
-                            if(write_policy == cache_write_through)
+                            if(write_policy == cache_write_through){
+                                printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 mem->store(mpa++,current_byte);
+                                u64 memVal;
+                                mem->load(mpa - 1, memVal);
+                                printf("In store_val, memory now has val %llx for mpa %llx\n",memVal, mpa-1);
+                            }
                             cast_val_64 >>= 8;
                         }
+                   }
                 }
 
                 /*
@@ -329,6 +378,9 @@ namespace riscv {
                     //store the contents of the mpa directly to cache and main mem.
                     if(op == 'S' && write_policy == cache_write_through){
                         store_val(mpa,index_for_data,val);
+                        u8 memVal;
+                        mem->load(mpa,memVal);
+                        printf("After accessing cache and storing, val is %llx for mpa %llx\n",memVal,mpa);
                     }
                     //If write back policy is used and mem access is a store,
                     //set the cache state to modified (aka dirty) and store to cache only
