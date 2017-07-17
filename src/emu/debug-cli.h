@@ -164,7 +164,7 @@ namespace riscv {
 				for (size_t j = 0; j < words; j++) {
 					switch (ws) {
 						case 1:
-						{
+						{ 
 							u8 val;
 							st.proc->mmu.load(*st.proc,
 								typename P::ux(addr), val);
@@ -172,7 +172,7 @@ namespace riscv {
 							break;
 						}
 						case 2:
-						{
+						{ 
 							u16 val;
 							st.proc->mmu.load(*st.proc,
 								typename P::ux(addr), val);
@@ -180,7 +180,7 @@ namespace riscv {
 							break;
 						}
 						case 4:
-						{
+						{ 
 							u32 val;
 							st.proc->mmu.load(*st.proc,
 								typename P::ux(addr), val);
@@ -188,7 +188,7 @@ namespace riscv {
 							break;
 						}
 						case 8:
-						{
+						{ 
 							u64 val;
 							st.proc->mmu.load(*st.proc,
 								typename P::ux(addr), val);
