@@ -215,12 +215,12 @@ namespace riscv {
 			if (!mpa) return;
 
 			/* check read permissions and perform load */
-                        //printf("Loading generic value...\n");
-			//printf("Before loading from memory, val is %llx\n",val);
-                        if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| mem->load(mpa, val))) {
+                        printf("Loading generic value...\n");
+			printf("Before loading from memory, val is %llx\n",val);
+                        if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| cache->load_c(mpa, val))) {
 				proc.raise(rv_cause_fault_load, va);
 			}
-                        //printf("Loaded generic value %llx from mpa %llx\n", val, mpa);
+                        printf("Loaded generic value %llx from mpa %llx\n", val, mpa);
 
 		}
 

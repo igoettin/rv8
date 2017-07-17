@@ -205,22 +205,59 @@ namespace riscv {
                         }
                     }
                 }
-
+                
                 template<typename T> 
                 buserror_t load_c(UX mpa, T & val){
                     if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
                         mem->load(mpa, val);
                     else {
-                        //printf("Loading from cache at mpa: %llx...\n",mpa);
-                        u64 memVal;
-                        mem->load(mpa,memVal);
+                        printf("Loading from cache at mpa: %llx...\n",mpa);
                         access_cache(mpa, 'L', val);
-                        //printf("Value loaded from mem directly was %llx for mpa %llx\n",memVal,mpa);
-                        //printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                        if(sizeof(val) == 1){
+                            u8 memVal;
+                            mem->load(mpa, memVal);
+                            if(memVal != val){
+                                printf("MEM INCONSISTENT WITH CACHE\n");                            
+                                printf("Size of val input is %llx\n",sizeof(val));
+                            }
+                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                            printf("Actual value in memory is %llx\n",memVal);
+                        }
+                        else if(sizeof(val) == 2) {
+                            u16 memVal;
+                            mem->load(mpa, memVal);
+                            if(memVal != val){
+                                printf("MEM INCONSISTENT WITH CACHE\n");                            
+                                printf("Size of val input is %llx\n",sizeof(val));
+                            }
+                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                            printf("Actual value in memory is %llx\n",memVal);
+                        }
+                        else if(sizeof(val) == 4) {
+                            u32 memVal;
+                            mem->load(mpa, memVal);
+                            if(memVal != val){
+                                printf("MEM INCONSISTENT WITH CACHE\n");                            
+                                printf("Size of val input is %llx\n",sizeof(val));
+                            }
+                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                            printf("Actual value in memory is %llx\n",memVal);
+                        
+                        } else {
+                            u64 memVal;
+                            mem->load(mpa, memVal);
+                            if(memVal != val){
+                                printf("MEM INCONSISTENT WITH CACHE\n");                            
+                                printf("Size of val input is %llx\n",sizeof(val));
+                            }
+                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
+                            printf("Actual value in memory is %llx\n",memVal);
+                        
+                       } 
                     }
                     return 0;
                 }
-
+                
                 template<typename T>
                 buserror_t store_c(UX mpa, T val){
                     if(mpa < default_ram_base || mpa > default_ram_base + default_ram_size)
@@ -229,8 +266,8 @@ namespace riscv {
                         //printf("Storing val %llx from mpa %llx into cache",val,mpa);
                         access_cache(mpa, 'S', val);
                         //printf("Done storing into cache\n");
-                        u64 memVal;
-                        mem->load(mpa,memVal);
+                        //u64 memVal;
+                        //mem->load(mpa,memVal);
                         //printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
                     }
                     return 0;
@@ -244,16 +281,66 @@ namespace riscv {
                 *
                 */
                 template<typename T>
-                void load_val(UX index_for_data, T & val){
-                    T new_val = 0;
+                void load_val(UX mpa, UX index_for_data, T & val){
+                    //if((((mpa + ((sizeof(val) * 8) - 1)) >> cache_line_shift) & num_entries_mask) > ((mpa >> cache_line_shift) & num_entries_mask)){
+                    printf("index_for_data with added part: %llx index_for_data by itself %llx\n", index_for_data + (sizeof(val) - 1), index_for_data);
+                    if(((index_for_data + (sizeof(val) - 1)) >> cache_line_shift) != (index_for_data >> cache_line_shift)){ 
+                        printf("IN!\n");
+                        UX index_for_entry = (index_for_data >> cache_line_shift) + 1;
+                        UX amount_to_add = cache_line_offset_mask - (mpa & cache_line_offset_mask);
+                        UX mpa_to_fill_bits = mpa + amount_to_add;
+                        cache_entry_t * ent = &cache_key[index_for_entry];
+                        if(ent->status != cache_line_empty) {
+                            //If the line is dirty, write its contents to mem
+                            if(write_policy == cache_write_back && ent->state == cache_state_modified){
+                                load_or_store_into_mem(ent->pcln << cache_line_shift, 'S', index_for_entry);
+                                ent->state = cache_state_shared; 
+                            }
+                            //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
+                            ent->LRU_count = 0;
+                            update_LRU_counters(ent->pcln & num_entries_mask, ent);
+                        }
+                        //Load the block from memory into the cache.
+                        load_or_store_into_mem(mpa_to_fill_bits, 'L', index_for_entry); 
+                        ent->pcln = mpa_to_fill_bits >> cache_line_shift;
+                        ent->ppn = ent->pcln >> num_entries_shift;
+                        ent->status = cache_line_filled;
+                        last_access = cache_line_must_evict;
+                    }
                     size_t shift_amt = 0;
+                    u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
+                    u32 cast_val_32 = *reinterpret_cast<u32*>(&val);
+                    u64 cast_val_64 = *reinterpret_cast<u64*>(&val);
+                    cast_val_16 = 0; cast_val_32 = 0; cast_val_64 = 0;
                     //Take each byte in the cache_data array and shift it over byte(s) amount
                     //so that the full value is created.
-                    for(size_t i = 0; i < sizeof(val); i++){
-                        new_val += ((u64)cache_data[index_for_data + i] << shift_amt);
-                        shift_amt += 8;
+                    if(sizeof(val) == 1)
+                        val = cache_data[index_for_data];
+                    else if(sizeof(val) == 2) {
+                        val = cast_val_16;
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cast_val_16 += ((u16)cache_data[index_for_data + i] << shift_amt);
+                            shift_amt += 8;
+                            printf("cast_val_16 is %llx\n",cast_val_16);
+                        }
+                        val = cast_val_16;
+                        printf("Val is %llx\n",val);
+                        printf("size of val is %llx\n",sizeof(val));
                     }
-                    val = new_val;
+                    else if(sizeof(val) == 4){
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cast_val_32 += ((u32)cache_data[index_for_data + i] << shift_amt);
+                            shift_amt += 8;
+                        }
+                        val = cast_val_32;
+                    }
+                    else{
+                        for(size_t i = 0; i < sizeof(val); i++){
+                            cast_val_64 += ((u64)cache_data[index_for_data + i] << shift_amt);
+                            shift_amt += 8;
+                        }
+                        val = cast_val_64;
+                    }
                 }
                 
                 /*
@@ -389,8 +476,16 @@ namespace riscv {
                         store_val(mpa,index_for_data,val);
                     }
                     //If loading, load from the cache_data array into val;
-                    else
-                        load_val(index_for_data,val);
+                    else{
+                       /* if(sizeof(val) == 2){
+                            u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
+                            load_val(mpa,index_for_data,cast_val_16);
+                            val = cast_val_16;
+                            val &= 65535;
+                            printf("val at the end of it is %llx\n while cast_val-16 is %llx\n",val,cast_val_16);
+                        }*/
+                        load_val(mpa,index_for_data,val);
+                    }
                 }
 
 		/*
