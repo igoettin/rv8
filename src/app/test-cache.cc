@@ -394,7 +394,7 @@ int main(int argc, char *argv[])
     temp_64 = 0x0807060504030201;
     u8 current_byte = 0x1;
     u64 mpa = 0x6421aa;
-    for(int i = 0; i < sizeof(temp_64); i++){
+    for(size_t i = 0; i < sizeof(temp_64); i++){
         cache_t.store_c(mpa++,current_byte++);
     }
     cache_t.load_c(0x6421aa, temp_64_2);

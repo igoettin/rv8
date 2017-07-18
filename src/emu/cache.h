@@ -214,9 +214,9 @@ namespace riscv {
                         return mem->load(mpa, val);
                     }
                     else {
-                        //printf("Loading from cache at mpa: %llx...\n",mpa);
-                        return access_cache(mpa, 'L', val);
-                        /*
+                        printf("Loading from cache at mpa: %llx...\n",mpa);
+                        if(access_cache(mpa,'L',val)) return -1;
+                         
                         if(sizeof(val) == 1){
                             u8 memVal;
                             mem->load(mpa, memVal);
@@ -257,8 +257,10 @@ namespace riscv {
                             printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
                             printf("Actual value in memory is %llx\n",memVal);
                         
-                       } */
-                        return 0;
+                       } 
+                       
+                       return 0;  
+                        
                     }
                     
                 }
@@ -269,12 +271,12 @@ namespace riscv {
                         return mem->store(mpa,val);
                     }
                     else {
-                        //printf("Storing val %llx from mpa %llx into cache",val,mpa);
-                        return access_cache(mpa, 'S', val);
-                        //printf("Done storing into cache\n");
+                        printf("Storing val %llx from mpa %llx into cache\n",val,mpa);
+                        if(access_cache(mpa, 'S', val)) return -1;
+                        printf("Done storing into cache\n");
+                        return 0;
                         //u64 memVal;
                         //mem->load(mpa,memVal);
-                        //printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
                     }
                     
                 }
@@ -288,15 +290,11 @@ namespace riscv {
                 */
                 template<typename T>
                 buserror_t load_val(UX mpa, UX index_for_data, T & val){
-                    //if((((mpa + ((sizeof(val) * 8) - 1)) >> cache_line_shift) & num_entries_mask) > ((mpa >> cache_line_shift) & num_entries_mask)){
                     //printf("index_for_data with added part: %llx index_for_data by itself %llx\n", index_for_data + (sizeof(val) - 1), index_for_data);
                     if(((index_for_data + (sizeof(val) - 1)) >> cache_line_shift) != (index_for_data >> cache_line_shift)){ 
-                        //printf("IN!\n");
                         UX index_for_entry = (index_for_data >> cache_line_shift) + 1;
                         UX amount_to_add = (cache_line_offset_mask - (mpa & cache_line_offset_mask)) + 1;
-                        //printf("amount to add is %llx\n",amount_to_add);
                         UX mpa_to_fill_bits = mpa + amount_to_add;
-                        //printf("mpa to fill bits is %llx\n",mpa_to_fill_bits);
                         cache_entry_t * ent = &cache_key[index_for_entry];
                         if(ent->status != cache_line_empty) {
                             //If the line is dirty, write its contents to mem
