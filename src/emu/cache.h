@@ -139,7 +139,11 @@ namespace riscv {
                 std::shared_ptr<memory_type> mem;
                 UX write_policy;
 		UX last_access;
-                
+
+                //Variables for cache hierarchy communication. 
+                std::shared_ptr<tagged_cache> parent_cache;
+                std::shared_ptr<tagged_cache> child_cache;
+
                 //Arrays to hold cache entries and data
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
@@ -148,6 +152,18 @@ namespace riscv {
                 uintmax_t default_ram_base = 0x80000000ULL;
                 uintmax_t default_ram_size = 0x40000000ULL;
 
+                //Cache Bank Constructor, contains argument to pass shared pointer to L1 cache.
+                tagged_cache(std::shared_ptr<memory_type> _mem, std::shared_ptr<tagged_cache> _parent_cache, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy), parent_cache(_parent_cache) {
+                    static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
+                    for (size_t i = 0; i < num_entries * num_ways; i++) {
+                        cache_key[i].status = cache_line_empty;
+                        cache_key[i].LRU_count = 0;
+                        cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
+                    }
+                }
+
+
+                //L1 Cache Constructor
                 tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) {
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
                     for (size_t i = 0; i < num_entries * num_ways; i++) {
@@ -156,13 +172,14 @@ namespace riscv {
                         cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
                 }
+
                 tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
                     mem = std::make_shared<MEMORY>();
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
                     for(size_t i = 0; i < num_entries * num_ways; i++) {
-                    cache_key[i].status = cache_line_empty;
-                    cache_key[i].LRU_count = 0;
-                    cache_key[i].state = cache_state_shared;
+                        cache_key[i].status = cache_line_empty;
+                        cache_key[i].LRU_count = 0;
+                        cache_key[i].state = cache_state_shared;
                     }
                 }
                 /*
@@ -209,14 +226,14 @@ namespace riscv {
                 }
                 
                 template<typename T> 
-                buserror_t load_c(UX mpa, T & val){
+                buserror_t load(UX mpa, T & val){
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
                         return mem->load(mpa, val);
                     }
                     else {
-                        printf("Loading from cache at mpa: %llx...\n",mpa);
+                        //printf("Loading from cache at mpa: %llx...\n",mpa);
                         if(access_cache(mpa,'L',val)) return -1;
-                         
+                        /* 
                         if(sizeof(val) == 1){
                             u8 memVal;
                             mem->load(mpa, memVal);
@@ -258,7 +275,7 @@ namespace riscv {
                             printf("Actual value in memory is %llx\n",memVal);
                         
                        } 
-                       
+                       */
                        return 0;  
                         
                     }
@@ -266,14 +283,14 @@ namespace riscv {
                 }
                 
                 template<typename T>
-                buserror_t store_c(UX mpa, T val){
+                buserror_t store(UX mpa, T val){
                     if(mpa < default_ram_base || (mpa > (default_ram_base + default_ram_size))){
                         return mem->store(mpa,val);
                     }
                     else {
-                        printf("Storing val %llx from mpa %llx into cache\n",val,mpa);
+                        //printf("Storing val %llx from mpa %llx into cache\n",val,mpa);
                         if(access_cache(mpa, 'S', val)) return -1;
-                        printf("Done storing into cache\n");
+                        //printf("Done storing into cache\n");
                         return 0;
                         //u64 memVal;
                         //mem->load(mpa,memVal);
@@ -292,6 +309,10 @@ namespace riscv {
                 buserror_t load_val(UX mpa, UX index_for_data, T & val){
                     //printf("index_for_data with added part: %llx index_for_data by itself %llx\n", index_for_data + (sizeof(val) - 1), index_for_data);
                     if(((index_for_data + (sizeof(val) - 1)) >> cache_line_shift) != (index_for_data >> cache_line_shift)){ 
+                        if(parent_cache){
+                            printf("In load val for parent_cache\n");
+                            if(parent_cache->load_val(mpa,index_for_data,val)) return -1;
+                        }
                         UX index_for_entry = (index_for_data >> cache_line_shift) + 1;
                         UX amount_to_add = (cache_line_offset_mask - (mpa & cache_line_offset_mask)) + 1;
                         UX mpa_to_fill_bits = mpa + amount_to_add;
@@ -446,6 +467,9 @@ namespace riscv {
 
                     //No hit was found, evict a block
                     else if(ent->status == cache_line_must_evict){
+                        if(parent_cache){
+                            if(parent_cache->access_cache(mpa,op,val)) return -1;
+                        }
                         //If the line is dirty, write its contents to mem
                         if(write_policy == cache_write_back && ent->state == cache_state_modified){
                             if(allocate(ent->pcln << cache_line_shift, 'S', index_for_entry)) return -1;
@@ -463,6 +487,9 @@ namespace riscv {
                     }
                     //No hit was found, but an empty line was found.
                     else if(ent->status == cache_line_empty){
+                        if(parent_cache){
+                            if(parent_cache->access_cache(mpa,op,val)) return -1;
+                        }
                         if(allocate(mpa,'L', index_for_entry)) return -1;
                         ent->pcln = mpa >> cache_line_shift;
                         ent->ppn = ent->pcln >> num_entries_shift;
@@ -485,13 +512,6 @@ namespace riscv {
                     }
                     //If loading, load from the cache_data array into val;
                     else{
-                       /* if(sizeof(val) == 2){
-                            u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
-                            load_val(mpa,index_for_data,cast_val_16);
-                            val = cast_val_16;
-                            val &= 65535;
-                            printf("val at the end of it is %llx\n while cast_val-16 is %llx\n",val,cast_val_16);
-                        }*/
                         if(load_val(mpa,index_for_data,val)) return -1;
                     }
                     return 0;
