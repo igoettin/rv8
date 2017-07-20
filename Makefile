@@ -40,6 +40,9 @@ check_ld_opt =  $(shell T=$$(mktemp /tmp/test.XXXX); \
                 $(1) $(3) $$T.o -o /dev/null >/dev/null 2>&1 ; \
                 echo $$?; rm $$T $$T.o)
 
+#gmp flag for cache statistics
+GMP_FLAGS = -lgmp
+
 # compiler flag test definitions
 LIBCPP_FLAGS =  -stdlib=libc++
 LTO_FLAGS =     -flto
@@ -69,7 +72,7 @@ OPT_FLAGS =     -O3 -fwrapv
 DEBUG_FLAGS =   -g
 WARN_FLAGS =    -Wall -Wsign-compare -Wno-deprecated-declarations -Wno-strict-aliasing
 CPPFLAGS =
-CFLAGS =        $(DEBUG_FLAGS) $(OPT_FLAGS) $(WARN_FLAGS) $(INCLUDES)
+CFLAGS =        $(DEBUG_FLAGS) $(OPT_FLAGS) $(WARN_FLAGS) $(INCLUDES) $(GMP_FLAGS)
 CXXFLAGS =      -std=c++1y -fno-rtti -fno-exceptions $(CFLAGS)
 LDFLAGS =       
 ASM_FLAGS =     -S -masm=intel
@@ -367,11 +370,6 @@ TEST_MMU_SRCS = $(SRC_DIR)/app/test-mmu.cc
 TEST_MMU_OBJS = $(call cxx_src_objs, $(TEST_MMU_SRCS))
 TEST_MMU_BIN =  $(BIN_DIR)/test-mmu
 
-#test-mmu-cache
-TEST_MMU_CACHE_SRCS = $(SRC_DIR)/app/test-mmu-cache.cc
-TEST_MMU_CACHE_OBJS = $(call cxx_src_objs, $(TEST_MMU_CACHE_SRCS))
-TEST_MMU_CACHE_BIN = $(BIN_DIR)/test-mmu-cache
-
 #test-cache
 TEST_CACHE_SRCS = $(SRC_DIR)/app/test-cache.cc
 TEST_CACHE_OBJS = $(call cxx_src_objs, $(TEST_CACHE_SRCS))
@@ -435,7 +433,6 @@ ALL_CXX_SRCS = $(RV_ASM_SRCS) \
            $(TEST_JIT_SRCS) \
            $(TEST_MMAP_SRCS) \
            $(TEST_MMU_SRCS) \
-           $(TEST_MMU_CACHE_SRCS) \
            $(TEST_MUL_SRCS) \
            $(TEST_OPERATORS_SRCS) \
            $(TEST_PRINTF_SRCS) \
@@ -453,7 +450,6 @@ BINARIES = $(RV_META_BIN) \
            $(TEST_JIT_BIN) \
            $(TEST_MMAP_BIN) \
            $(TEST_MMU_BIN) \
-           $(TEST_MMU_CACHE_BIN) \
            $(TEST_MUL_BIN) \
            $(TEST_OPERATORS_BIN) \
            $(TEST_PRINTF_BIN) \
@@ -693,10 +689,6 @@ $(TEST_MMAP_BIN): $(TEST_MMAP_OBJS) $(MMAP_LIB)
 	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) $(MMAP_FLAGS) -o $@)
 
 $(TEST_MMU_BIN): $(TEST_MMU_OBJS) $(RV_UTIL_LIB)
-	@mkdir -p $(shell dirname $@) ;
-	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) -o $@)
-
-$(TEST_MMU_CACHE_BIN): $(TEST_MMU_CACHE_OBJS) $(RV_UTIL_LIB)
 	@mkdir -p $(shell dirname $@) ;
 	$(call cmd, LD $@, $(LD) $^ $(LDFLAGS) -o $@)
 

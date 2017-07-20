@@ -143,7 +143,7 @@ namespace riscv {
                 //Arrays to hold cache entries and data
 		cache_entry_t cache_key[num_entries * num_ways];
 		u8 cache_data[cache_size];
-
+                
                 //RAM size and base
                 uintmax_t default_ram_base = 0x80000000ULL;
                 uintmax_t default_ram_size = 0x40000000ULL;
@@ -216,7 +216,7 @@ namespace riscv {
                 buserror_t load(UX mpa, T & val){
                     load_count++;
                   //  printf("Loading.. Hit count: %lld, Miss Count: %lld, Hit Rate %lf, Load_Count: %lld, Store_Count: %lld, Num Evicted: %lld\n",
-                  //    hit_count,miss_count,hit_rate,load_count,store_count,num_evicted_lines); 
+                    //  hit_count,miss_count,hit_rate,load_count,store_count,num_evicted_lines); 
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
                         return mem->load(mpa, val);
                     }

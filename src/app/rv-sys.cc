@@ -42,6 +42,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#include<gmp.h>
+
 #include "host-endian.h"
 #include "types.h"
 #include "fmt.h"
