@@ -12,9 +12,64 @@ namespace riscv {
 	template <typename P>
 	struct processor_proxy : P
 	{
+		int set_child_tid;
+		int clear_child_tid;
+
 		const char* name() { return "rv-sim"; }
 
 		void init() {}
+
+		void exit(int rc)
+		{
+			if (!(P::log & proc_log_exit_stats)) ::exit(rc);
+
+			/* reopen console if necessary */
+			struct pollfd pfd[3] = { { .fd=fileno(stdout) } };
+			poll(pfd, 1, 0);
+			if (pfd[0].revents & POLLNVAL) {
+				int fd = open("/dev/tty", O_WRONLY);
+				if (fd < 0) ::exit(rc);
+				if (dup2(fd, fileno(stdout)) < 0) ::exit(rc);
+			}
+
+			/* print integer register file */
+			printf("\n");
+			printf("integer register file\n");
+			printf("~~~~~~~~~~~~~~~~~~~~~\n");
+			P::print_int_registers();
+
+			/* print control and status registers */
+			printf("\n");
+			printf("control and status registers\n");
+			printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+			P::print_csr_registers();
+
+			/* print program counter histogram */
+			if (P::log & proc_log_hist_pc) {
+				printf("\n");
+				printf("program counter histogram\n");
+				printf("~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+				histogram_pc(*this, false);
+				printf("\n");
+			}
+
+			/* print register histogram */
+			if (P::log & proc_log_hist_reg) {
+				printf("\n");
+				printf("register usage histogram\n");
+				printf("~~~~~~~~~~~~~~~~~~~~~~~~\n");
+				histogram_reg(*this, false);
+			}
+
+			/* print register histogram */
+			if (P::log & proc_log_hist_inst) {
+				printf("\n");
+				printf("instruction usage histogram\n");
+				printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+				histogram_inst(*this, false);
+				printf("\n");
+			}
+		}
 
 		addr_t inst_csr(typename P::decode_type &dec, int op, int csr, typename P::ux value, addr_t pc_offset)
 		{

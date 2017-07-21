@@ -4,6 +4,7 @@ rv8
 RISC-V simulator for x86-64
 
 [![Build Status](https://travis-ci.org/rv8-io/rv8.svg?branch=master)](https://travis-ci.org/rv8-io/rv8)
+[![Coverity Status](https://img.shields.io/coverity/scan/13148.svg)](https://scan.coverity.com/projects/rv8-io-rv8)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=TKDFDG65GCXD2)
 
@@ -232,8 +233,9 @@ usage: rv-jit [<options>] <elf_file> [<options>]
               --log-memory-map, -m            Log Memory Map Information
                --log-registers, -r            Log Registers (defaults to integer registers)
                --log-jit-trace, -T            Log JIT trace
-    --register-usage-histogram, -H            Record register usage
           --pc-usage-histogram, -P            Record program counter usage
+    --register-usage-histogram, -R            Record register usage
+ --instruction-usage-histogram, -I            Record instruction usage
                        --debug, -d            Start up in debugger CLI
                    --no-pseudo, -x            Disable Pseudoinstruction decoding
                     --no-trace, -t            Disable JIT tracer
@@ -255,11 +257,15 @@ The ABI Proxy Simulator command line options:
 ```
 $ rv-sim -h
 usage: rv-sim [<options>] <elf_file> [<options>]
-                         --isa, -i <string>   ISA Extensions (IMA, IMAC, IMAFD, IMAFDC)
             --log-instructions, -l            Log Instructions
                 --log-operands, -o            Log Instructions and Operands
+                 --symbolicate, -S            Symbolicate addresses in instruction log
               --log-memory-map, -m            Log Memory Map Information
                --log-registers, -r            Log Registers (defaults to integer registers)
+                    --log-exit, -e            Log Registers at exit
+          --pc-usage-histogram, -P            Record program counter usage
+    --register-usage-histogram, -R            Record register usage
+ --instruction-usage-histogram, -I            Record instruction usage
                        --debug, -d            Start up in debugger CLI
                    --no-pseudo, -x            Disable Pseudoinstruction decoding
                         --seed, -s <string>   Random seed
@@ -285,19 +291,20 @@ usage: rv-sys [<options>] <elf_file>
                     --log-mmio, -O            Log Memory Mapped IO
               --log-memory-map, -m            Log Memory Map Information
                --log-mmode-csr, -M            Log Machine Control and Status Registers
-               --log-hmode-csr, -H            Log Hypervisor Control and Status Registers
                --log-smode-csr, -S            Log Supervisor Control and Status Registers
-               --log-umode-csr, -U            Log User Control and Status Registers
                --log-registers, -r            Log Registers (defaults to integer registers)
                --log-pagewalks, -v            Log Pagewalks
+                  --log-config, -c            Log Config
                    --log-traps, -t            Log Traps
-    --register-usage-histogram, -H            Record register usage
-          --pc-usage-histogram, -J            Record program counter usage
+                    --log-exit, -e            Log Registers at exit
+          --pc-usage-histogram, -P            Record program counter usage
+    --register-usage-histogram, -R            Record register usage
+ --instruction-usage-histogram, -I            Record instruction usage
                        --debug, -d            Start up in debugger
                   --debug-trap, -T            Start up in debugger and enter debugger on trap
                    --no-pseudo, -x            Disable Pseudoinstruction decoding
                 --map-physical, -p <string>   Map execuatable at physical address
-                         --bbl, -b <string>   BBL Boot ( 32, 64 )
+                      --binary, -b <string>   Boot Binary ( 32, 64 )
                         --seed, -s <string>   Random seed
                         --help, -h            Show help
 ```

@@ -88,6 +88,7 @@
 #include "device-gpio.h"
 #include "device-rand.h"
 #include "device-htif.h"
+#include "processor-histogram.h"
 #include "processor-priv-1.9.h"
 #include "debug-cli.h"
 #include "processor-runloop.h"
@@ -198,6 +199,11 @@ struct rv_emulator
 			panic("map_executable: error: mmap: %s: %s", filename, strerror(errno));
 		}
 
+		/* zero bss */
+		if ((phdr.p_flags & PF_W) && phdr.p_memsz > phdr.p_filesz) {
+			memset((void*)((uintptr_t)addr + phdr.p_filesz), 0, phdr.p_memsz - phdr.p_filesz - 1);
+		}
+
 		/* add the mmap to the emulator soft_mmu */
 		proc.mmu.mem->add_mmap(map_vaddr, addr_t(addr), map_len,
 			pma_type_main | elf_pma_flags(phdr.p_flags));
@@ -240,12 +246,18 @@ struct rv_emulator
 			{ "-t", "--log-traps", cmdline_arg_type_none,
 				"Log Traps",
 				[&](std::string s) { return (proc_logs |= proc_log_trap); } },
-			{ "-H", "--register-usage-histogram", cmdline_arg_type_none,
-				"Record register usage",
-				[&](std::string s) { return (proc_logs |= proc_log_hist_reg); } },
+			{ "-E", "--log-exit", cmdline_arg_type_none,
+				"Log Registers at exit",
+				[&](std::string s) { return (proc_logs |= proc_log_exit_stats); } },
 			{ "-P", "--pc-usage-histogram", cmdline_arg_type_none,
 				"Record program counter usage",
-				[&](std::string s) { return (proc_logs |= proc_log_hist_pc); } },
+				[&](std::string s) { return (proc_logs |= proc_log_hist_pc | proc_log_exit_stats); } },
+			{ "-R", "--register-usage-histogram", cmdline_arg_type_none,
+				"Record register usage",
+				[&](std::string s) { return (proc_logs |= proc_log_hist_reg | proc_log_exit_stats); } },
+			{ "-I", "--instruction-usage-histogram", cmdline_arg_type_none,
+				"Record instruction usage",
+				[&](std::string s) { return (proc_logs |= proc_log_hist_inst | proc_log_exit_stats); } },
 			{ "-d", "--debug", cmdline_arg_type_none,
 				"Start up in debugger",
 				[&](std::string s) { return (proc_logs |= proc_log_ebreak_cli); } },

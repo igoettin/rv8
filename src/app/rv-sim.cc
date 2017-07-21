@@ -35,9 +35,11 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <sys/uio.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
 #include <sys/utsname.h>
 
 #include "host-endian.h"
@@ -67,6 +69,7 @@
 #include "processor-model.h"
 #include "mmu-proxy.h"
 #include "unknown-abi.h"
+#include "processor-histogram.h"
 #include "processor-proxy.h"
 #include "debug-cli.h"
 #include "processor-runloop.h"
@@ -127,9 +130,11 @@ struct rv_emulator
 
 	elf_file elf;
 	std::string elf_filename;
+	uintptr_t imagebase = 0;
 	host_cpu &cpu;
 	int proc_logs = 0;
 	bool help_or_error = false;
+	bool symbolicate = false;
 	uint64_t initial_seed = 0;
 	int ext = rv_set_imafdc;
 
@@ -155,6 +160,26 @@ struct rv_emulator
 		if (v & PF_W) prot |= PROT_WRITE;
 		if (v & PF_R) prot |= PROT_READ;
 		return prot;
+	}
+
+	const char* symlookup(addr_t addr)
+	{
+		static char symbol_tmpname[256];
+		auto sym = elf.sym_by_addr((Elf64_Addr)addr);
+		if (sym) {
+			snprintf(symbol_tmpname, sizeof(symbol_tmpname),
+					"%s", elf.sym_name(sym));
+			return symbol_tmpname;
+		}
+		sym = elf.sym_by_nearest_addr((Elf64_Addr)addr);
+		if (sym) {
+			int64_t offset = int64_t(addr) - sym->st_value;
+			snprintf(symbol_tmpname, sizeof(symbol_tmpname),
+				"%s%s0x%" PRIx64, elf.sym_name(sym),
+				offset < 0 ? "-" : "+", offset < 0 ? -offset : offset);
+			return symbol_tmpname;
+		}
+		return nullptr;
 	}
 
 	/* Map a single stack segment into user address space */
@@ -204,23 +229,22 @@ struct rv_emulator
 			envp array, null terminated
 			argv pointer array, null terminated
 			argc <- stack pointer
-
-			enum {
-				AT_NULL = 0,         * end of auxiliary vector *
-				AT_BASE = 7,         * pointer to image base *
-			};
-
-			typedef struct {
-				Elf32_Word a_type;
-				Elf32_Word a_val;
-			} Elf32_auxv;
-
-			typedef struct {
-				Elf64_Word a_type;
-				Elf64_Word a_val;
-			} Elf64_auxv;
 		*/
 
+		/* set up aux data */
+		std::vector<typename P::ux> aux_data = {
+			AT_BASE, typename P::ux(imagebase),
+			AT_PHDR, typename P::ux(imagebase + elf.ehdr.e_phoff),
+			AT_PHNUM, elf.ehdr.e_phnum,
+			AT_PHENT, elf.ehdr.e_phentsize,
+			AT_PAGESZ, page_size,
+			AT_RANDOM, cpu.get_random_seed(),
+			AT_UID, getuid(),
+			AT_EUID, geteuid(),
+			AT_GID, getgid(),
+			AT_EGID, getegid(),
+			AT_NULL, 0
+		};
 
 		/* add environment data to stack */
 		std::vector<typename P::ux> env_data;
@@ -241,7 +265,9 @@ struct rv_emulator
 		/* align stack to 16 bytes */
 		proc.ireg[rv_ireg_sp] = proc.ireg[rv_ireg_sp] & ~15;
 
-		/* TODO - Add auxiliary vector to stack */
+		/* add auxiliary vector to stack */
+		copy_to_proxy_stack(proc, stack_top, stack_size, (void*)aux_data.data(),
+			aux_data.size() * sizeof(typename P::ux));
 
 		/* add environment array to stack */
 		copy_to_proxy_stack(proc, stack_top, stack_size, (void*)env_data.data(),
@@ -264,10 +290,15 @@ struct rv_emulator
 		if (fd < 0) {
 			panic("map_executable: error: open: %s: %s", filename, strerror(errno));
 		}
+
+		/* round the mmap start address and length to the nearest page size */
 		addr_t map_delta = phdr.p_offset & (page_size-1);
 		addr_t map_offset = phdr.p_offset - map_delta;
 		addr_t map_vaddr = phdr.p_vaddr - map_delta;
 		addr_t map_len = round_up(phdr.p_memsz + map_delta, page_size);
+		addr_t map_end = map_vaddr + map_len;
+		addr_t brk = addr_t(phdr.p_vaddr + phdr.p_memsz);
+		if (!imagebase) imagebase = map_vaddr;
 		void *addr = mmap((void*)map_vaddr, map_len,
 			elf_p_flags_mmap(phdr.p_flags), MAP_FIXED | MAP_PRIVATE, fd, map_offset);
 		close(fd);
@@ -275,7 +306,13 @@ struct rv_emulator
 			panic("map_executable: error: mmap: %s: %s", filename, strerror(errno));
 		}
 
-		/* log elf load segment virtual address range */
+		/* erase trailing bytes past the end of the mapping */
+		if ((phdr.p_flags & PF_W) && phdr.p_memsz > phdr.p_filesz) {
+			addr_t start = addr_t(phdr.p_vaddr + phdr.p_filesz), len = map_end - start;
+			memset((void*)start, 0, len);
+		}
+
+		/* log load segment virtual address range */
 		if (proc.log & proc_log_memory) {
 			debug("mmap-elf :%016" PRIxPTR "-%016" PRIxPTR " %s offset=%" PRIxPTR,
 				addr_t(map_vaddr), addr_t(map_vaddr + map_len),
@@ -284,9 +321,15 @@ struct rv_emulator
 
 		/* add the mmap to the emulator proxy_mmu */
 		proc.mmu.mem->segments.push_back(std::pair<void*,size_t>((void*)phdr.p_vaddr, phdr.p_memsz));
-		addr_t seg_end = addr_t(map_vaddr + map_len);
-		if (proc.mmu.mem->heap_begin < seg_end) {
-			proc.mmu.mem->brk = proc.mmu.mem->heap_begin = proc.mmu.mem->heap_end = seg_end;
+
+		/* set heap mmap area begin and end */
+		if (proc.mmu.mem->heap_begin < map_end) {
+			proc.mmu.mem->heap_begin = proc.mmu.mem->heap_end = map_end;
+		}
+
+		/* set the program break */
+		if (proc.mmu.mem->brk < brk) {
+			proc.mmu.mem->brk = brk;
 		}
 	}
 
@@ -305,18 +348,27 @@ struct rv_emulator
 			{ "-o", "--log-operands", cmdline_arg_type_none,
 				"Log Instructions and Operands",
 				[&](std::string s) { return (proc_logs |= (proc_log_inst | proc_log_trap | proc_log_operands)); } },
+			{ "-S", "--symbolicate", cmdline_arg_type_none,
+				"Symbolicate addresses in instruction log",
+				[&](std::string s) { return (symbolicate = true); } },
 			{ "-m", "--log-memory-map", cmdline_arg_type_none,
 				"Log Memory Map Information",
 				[&](std::string s) { return (proc_logs |= proc_log_memory); } },
 			{ "-r", "--log-registers", cmdline_arg_type_none,
 				"Log Registers (defaults to integer registers)",
 				[&](std::string s) { return (proc_logs |= proc_log_int_reg); } },
-			{ "-H", "--register-usage-histogram", cmdline_arg_type_none,
-				"Record register usage",
-				[&](std::string s) { return (proc_logs |= proc_log_hist_reg); } },
+			{ "-E", "--log-exit", cmdline_arg_type_none,
+				"Log Registers at exit",
+				[&](std::string s) { return (proc_logs |= proc_log_exit_stats); } },
 			{ "-P", "--pc-usage-histogram", cmdline_arg_type_none,
 				"Record program counter usage",
-				[&](std::string s) { return (proc_logs |= proc_log_hist_pc); } },
+				[&](std::string s) { return (proc_logs |= proc_log_hist_pc | proc_log_exit_stats); } },
+			{ "-R", "--register-usage-histogram", cmdline_arg_type_none,
+				"Record register usage",
+				[&](std::string s) { return (proc_logs |= proc_log_hist_reg | proc_log_exit_stats); } },
+			{ "-I", "--instruction-usage-histogram", cmdline_arg_type_none,
+				"Record instruction usage",
+				[&](std::string s) { return (proc_logs |= proc_log_hist_inst | proc_log_exit_stats); } },
 			{ "-d", "--debug", cmdline_arg_type_none,
 				"Start up in debugger CLI",
 				[&](std::string s) { return (proc_logs |= proc_log_ebreak_cli); } },
@@ -359,8 +411,8 @@ struct rv_emulator
 			}
 		}
 
-		/* load ELF (headers only) */
-		elf.load(elf_filename, true);
+		/* load ELF (headers only unless symbolicating) */
+		elf.load(elf_filename, !symbolicate);
 	}
 
 	/* Start the execuatable with the given proxy processor template */
@@ -375,6 +427,7 @@ struct rv_emulator
 		proc.log = proc_logs;
 		proc.pc = elf.ehdr.e_entry;
 		proc.mmu.mem->log = (proc.log & proc_log_memory);
+		if (symbolicate) proc.symlookup = [&](addr_t va) { return this->symlookup(va); };
 
 		/* randomise integer register state with 512 bits of entropy */
 		proc.seed_registers(cpu, initial_seed, 512);
