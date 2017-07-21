@@ -82,6 +82,11 @@ using namespace riscv;
 int main(int argc, char *argv[])
 {       
 
+    
+    //mpf_t a;
+    //mpf_init(a);
+    //mpf_add_ui(a,a,1);
+
     assert(page_shift == 12);
     assert(page_size == 4096);
    

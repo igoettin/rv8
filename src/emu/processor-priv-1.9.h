@@ -424,6 +424,16 @@ core {
 				histogram_inst(*this, false);
 				printf("\n");
 			}
+                        /* print cache statistics */
+                        if(P:: log & proc_log_cache_stats) {
+                                printf("\n");
+                                printf("cache statistics\n");
+                                printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+                                printf("Cache Hits: "); //std::cout << P::mmu.cache->hit_count << std::endl; //mpf_out_str(stdout,10,256,P::mmu.cache->hit_count); printf("\n");
+
+                                //printf("Amount of loads %lld\n",P::mmu.cache->load_count);
+                        }
+
 		}
 
 		void wait_for_interrupt()

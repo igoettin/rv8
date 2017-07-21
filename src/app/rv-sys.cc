@@ -2,6 +2,7 @@
 //  rv-sys.cc
 //
 
+#include <iostream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -42,7 +43,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
-#include<gmp.h>
+#include <gmp.h>
 
 #include "host-endian.h"
 #include "types.h"
@@ -215,7 +216,7 @@ struct rv_emulator
 		{
                         { "-a", "--cache-sim", cmdline_arg_type_none,
                                 "Simulate cache",
-                                [&](std::string s) { return (use_cache = true);}},
+                                [&](std::string s) { use_cache = true; return (proc_logs |= proc_log_cache_stats);}},
 			{ "-l", "--log-instructions", cmdline_arg_type_none,
 				"Log Instructions",
 				[&](std::string s) { return (proc_logs |= (proc_log_inst | proc_log_trap)); } },

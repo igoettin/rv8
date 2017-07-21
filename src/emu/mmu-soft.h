@@ -27,7 +27,7 @@ namespace riscv {
 		tlb_type       l1_dtlb;     /* L1 Data TLB */
 		pma_type       pma;         /* PMA table */
 		memory_type    mem;         /* memory device */
-
+                memory_type    cache;       //Reference to cache for statistics. Remove when merge mmu-soft with mmu-soft-cache
 		/* MMU constructor */
 
 		mmu_soft() : mem(std::make_shared<MEMORY>()) {}

@@ -41,16 +41,17 @@ check_ld_opt =  $(shell T=$$(mktemp /tmp/test.XXXX); \
                 echo $$?; rm $$T $$T.o)
 
 #gmp flag for cache statistics
-GMP_FLAGS = -lgmp
+C_GMP_FLAGS = -lgmp
+CXX_GMP_FLAGS = -lgmpxx
 
 # compiler flag test definitions
-LIBCPP_FLAGS =  -stdlib=libc++
-LTO_FLAGS =     -flto
-STPS_FLAGS =    -fstack-protector-strong
+LIBCPP_FLAGS =  -stdlib=libc++ 
+LTO_FLAGS =     -flto 
+STPS_FLAGS =    -fstack-protector-strong 
 STP_FLAGS =     -fstack-protector
-RELRO_FLAGS =   -Wl,-z,relro
-RELROF_FLAGS =  -Wl,-z,relro,-z,now
-NOEXEC_FLAGS =  -Wl,-z,noexecstack
+RELRO_FLAGS =   -Wl,-z,relro 
+RELROF_FLAGS =  -Wl,-z,relro,-z,now 
+NOEXEC_FLAGS =  -Wl,-z,noexecstack 
 
 # default optimizer, debug and warning flags
 TOP_DIR =       $(shell pwd)
@@ -71,15 +72,15 @@ INCLUDES :=     -I$(TOP_DIR)/src/abi \
 OPT_FLAGS =     -O3 -fwrapv
 DEBUG_FLAGS =   -g
 WARN_FLAGS =    -Wall -Wsign-compare -Wno-deprecated-declarations -Wno-strict-aliasing
-CPPFLAGS =
-CFLAGS =        $(DEBUG_FLAGS) $(OPT_FLAGS) $(WARN_FLAGS) $(INCLUDES) $(GMP_FLAGS)
-CXXFLAGS =      -std=c++1y -fno-rtti -fno-exceptions $(CFLAGS)
-LDFLAGS =       
-ASM_FLAGS =     -S -masm=intel
+CPPFLAGS =      
+CFLAGS =        $(DEBUG_FLAGS) $(OPT_FLAGS) $(WARN_FLAGS) $(C_GMP_FLAGS) $(INCLUDES)  
+CXXFLAGS =      -std=c++1y -fno-rtti -fno-exceptions $(CXX_GMP_FLAGS) $(CFLAGS) 
+LDFLAGS =       $(C_GMP_FLAGS) $(CXX_GMP_FLAGS)
+ASM_FLAGS =     -S -masm=intel 
 MACOS_LDFLAGS = -Wl,-pagezero_size,0x1000 -Wl,-no_pie -image_base 0x7ffe00000000
 LINUX_LDFLAGS = -pie -Wl,-Ttext-segment=0x7ffe00000000
-LIBCXX_FLAGS =  -stdlib=libcxx
-PTH_CPPFLAGS =  -pthread
+LIBCXX_FLAGS =  -stdlib=libcxx $(GMP_FLAGS)
+PTH_CPPFLAGS =  -pthread 
 PTH_LDFLAGS_1 = -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
 PTH_LDFLAGS_2 = -lpthread
 RT_LDFLAGS =    -lrt

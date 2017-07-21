@@ -149,8 +149,12 @@ namespace riscv {
                 uintmax_t default_ram_size = 0x40000000ULL;
 
                 //Statistics
-                u64 hit_count = 0, miss_count = 0, load_count = 0, store_count = 0, num_evicted_lines = 0;
-                double hit_rate = ((double)(hit_count)/(double)(hit_count + miss_count));
+                mpf_t hit_count, 
+                      miss_count, 
+                      load_count, 
+                      store_count, 
+                      num_evicted_lines, 
+                      hit_rate;
 
                 tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) {
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
@@ -159,6 +163,12 @@ namespace riscv {
                         cache_key[i].LRU_count = 0;
                         cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
+                    mpf_init2(hit_count, 256);
+                    mpf_init2(miss_count, 256);
+                    mpf_init2(load_count, 256);
+                    mpf_init2(store_count, 256);
+                    mpf_init2(num_evicted_lines, 256);
+                    mpf_init2(hit_rate, 256);
                 }
                 tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
                     mem = std::make_shared<MEMORY>();
@@ -168,6 +178,12 @@ namespace riscv {
                         cache_key[i].LRU_count = 0;
                         cache_key[i].state = cache_state_shared;
                     }
+                    mpf_init2(hit_count, 256);
+                    mpf_init2(miss_count, 256);
+                    mpf_init2(load_count, 256);
+                    mpf_init2(store_count, 256);
+                    mpf_init2(num_evicted_lines, 256);
+                    mpf_init2(hit_rate, 256); 
                 }
                 /*
                 *Updates all cache entries' LRU counters in the set, except for the most recently accessed item
@@ -214,9 +230,7 @@ namespace riscv {
                 
                 template<typename T> 
                 buserror_t load(UX mpa, T & val){
-                    load_count++;
-                  //  printf("Loading.. Hit count: %lld, Miss Count: %lld, Hit Rate %lf, Load_Count: %lld, Store_Count: %lld, Num Evicted: %lld\n",
-                    //  hit_count,miss_count,hit_rate,load_count,store_count,num_evicted_lines); 
+                    mpf_add_ui(load_count,load_count,1);
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
                         return mem->load(mpa, val);
                     }
@@ -272,7 +286,7 @@ namespace riscv {
                 
                 template<typename T>
                 buserror_t store(UX mpa, T val){
-                    store_count++;
+                    mpf_add_ui(store_count,store_count,1);
                     if(mpa < default_ram_base || (mpa > (default_ram_base + default_ram_size))){
                         return mem->store(mpa,val);
                     }
@@ -321,7 +335,7 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_must_evict;
-                        num_evicted_lines++;
+                        mpf_add_ui(num_evicted_lines,num_evicted_lines,1);;
                     }
                     size_t shift_amt = 0;
                     u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
@@ -452,7 +466,7 @@ namespace riscv {
                         //Hit was found, set the status to filled. 
                         ent->status = cache_line_filled;
                         last_access = cache_line_hit;
-                        hit_count++;
+                        mpf_add_ui(hit_count,hit_count,1);
                     }
 
                     //No hit was found, evict a block
@@ -471,8 +485,8 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_must_evict;
-                        miss_count++;
-                        num_evicted_lines++;
+                        mpf_add_ui(miss_count,miss_count,1);
+                        mpf_add_ui(num_evicted_lines,num_evicted_lines,1);;
                     }
                     //No hit was found, but an empty line was found.
                     else if(ent->status == cache_line_empty){
@@ -481,7 +495,7 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_empty;
-                        miss_count++;
+                        mpf_add_ui(miss_count,miss_count,1);
                     }
                     //If write through policy is used and mem access is a store,
                     //store the contents of the mpa directly to cache and main mem.
