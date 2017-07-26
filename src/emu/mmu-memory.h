@@ -169,7 +169,7 @@ namespace riscv {
 		{
 			memory_segment<UX> *segment = nullptr;
 			addr_t uva = mpa_to_uva(segment, va);
-			if (unlikely(!segment)) return -1;
+                        if (unlikely(!segment)) return -1;
 			return segment->load_8(uva, val);
 		}
 
@@ -201,15 +201,15 @@ namespace riscv {
 		{
 			memory_segment<UX> *segment = nullptr;
 			addr_t uva = mpa_to_uva(segment, va);
-			if (unlikely(!segment)) return -1;
-			return segment->store_8(uva, val);
+                        if (unlikely(!segment)) return -1;
+                        return segment->store_8(uva, val);
 		}
 
 		virtual buserror_t store_16(UX va, u16 val)
 		{
 			memory_segment<UX> *segment = nullptr;
 			addr_t uva = mpa_to_uva(segment, va);
-			if (unlikely(!segment)) return -1;
+                        if (unlikely(!segment)) return -1;
 			return segment->store_16(uva, val);
 		}
 
@@ -226,7 +226,7 @@ namespace riscv {
 			memory_segment<UX> *segment = nullptr;
 			addr_t uva = mpa_to_uva(segment, va);
 			if (unlikely(!segment)) return -1;
-			return segment->store_64(uva, val);
+                        return segment->store_64(uva, val);
 		}
 
 	};

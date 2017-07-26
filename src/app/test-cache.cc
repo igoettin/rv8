@@ -93,44 +93,42 @@ int main(int argc, char *argv[])
 
     // add some RAM to the mem
     mem->add_ram(0x2ABCDE, /*1GB*/0x40000000LL - 0x2ABCDE);
-    
     //////////////////////////
     //Direct mapped, write through tests.
     //////////////////////////
     
     printf("Running tests for direct mapped, write through cache...\n");
-    
+
     tagged_cache<param_rv64,4096,1,1024> cache_dm(mem,cache_write_through);
     //Store a value into an empty line in the cache, load to see if we got a hit.
     temp = 23;
-    cache_dm.access_cache(0x2ABCDE, 'S', temp); 
+    cache_dm.access_cache(0x4ABCDE, 'S', temp); 
     assert(cache_dm.last_access == cache_line_empty);
-    cache_dm.access_cache(0x2ABCDE,'L', y2);
+    cache_dm.access_cache(0x4ABCDE,'L', y2);
     assert(cache_dm.last_access == cache_line_hit);
     //Check the same value was returned, and that the value exists in memory.
     assert(23 == y2);
-    assert(((cache_dm.cache_key[cache_dm.lookup_cache_line(0x2ABCDE)].ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
     assert(cache_dm.mem->segments.front()->mpa == mem->segments.front()->mpa);
     //Evict the same block with a new tag
     temp = 75;
-    cache_dm.access_cache(0x2ACCDA, 'S', temp);
+    cache_dm.access_cache(0x4ACCDA, 'S', temp);
     assert(cache_dm.last_access == cache_line_must_evict);
-    cache_dm.access_cache(0x2ACCDA, 'L', z2);
+    cache_dm.access_cache(0x4ACCDA, 'L', z2);
     assert(cache_dm.last_access = cache_line_hit);
     //Check we get 75 back
     assert(z2 == 75);
     assert(z2 != 23);
     //Check the ppn was changed
-    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x2ACCDA)].ppn != 0x2ab);
+    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x4ACCDA)].ppn != 0x4ab);
     //Load the previous tag back in, check that it still retains its old value from main memory
-    cache_dm.access_cache(0x2abcde, 'L',z3);
+    cache_dm.access_cache(0x4abcde, 'L',z3);
     assert(cache_dm.last_access == cache_line_must_evict);
-    mem->load(0x2abcde, memVal);
+    mem->load(0x4abcde, memVal);
     assert(z3 == 23);
     assert(z3 == y2);
     //Lookup the 0x2accda mpa, check that the ppn there is for 0x2ab since we loaded it in.
-    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x2accda)].ppn == 0x2ab);
-    
+    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x4accda)].ppn == 0x4ab);
+  
     ////////////////////////
     //Direct mapped, write back tests
     ////////////////////////
@@ -406,7 +404,6 @@ int main(int argc, char *argv[])
     assert(temp_64 == temp_64_2);
     u64 temp_64_3;
     cache_t.load(0x6421aa,temp_64_3);
-    printf("temp_64_3 is %llx\n",temp_64_3);
     assert(temp_64_2 == temp_64_3);
     temp_64_3 = 0;
     mem->load(0x6421aa,temp_64_3);

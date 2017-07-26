@@ -318,7 +318,6 @@ namespace riscv {
                 buserror_t load_val(UX mpa, UX index_for_data, T & val){
                     //printf("index_for_data with added part: %llx index_for_data by itself %llx\n", index_for_data + (sizeof(val) - 1), index_for_data);
                     if(((index_for_data + (sizeof(val) - 1)) >> cache_line_shift) != (index_for_data >> cache_line_shift)){ 
-                        //printf("IN!\n");
                         UX index_for_entry = (index_for_data >> cache_line_shift) + 1;
                         UX amount_to_add = (cache_line_offset_mask - (mpa & cache_line_offset_mask)) + 1;
                         //printf("amount to add is %llx\n",amount_to_add);
@@ -350,8 +349,10 @@ namespace riscv {
                     cast_val_16 = 0; cast_val_32 = 0; cast_val_64 = 0;
                     //Take each byte in the cache_data array and shift it over byte(s) amount
                     //so that the full value is created.
-                    if(sizeof(val) == 1)
+                    if(sizeof(val) == 1){
                         val = cache_data[index_for_data];
+                        //printf("val is %llx\n",val);
+                    }
                     else if(sizeof(val) == 2) {
                         val = cast_val_16;
                         for(size_t i = 0; i < sizeof(val); i++){
@@ -377,6 +378,7 @@ namespace riscv {
                         }
                         val = cast_val_64;
                     }
+                    //printf("val is %llx\n",val);
                     return 0;
                 }
                 
@@ -396,11 +398,13 @@ namespace riscv {
                     u64 cast_val_64 = *reinterpret_cast<u64*>(&val);
                     //Assign current_byte to val so that only a byte is retrieved,
                     //store that, then right shift val a byte amount to get the next byte. 
+                    //printf("size of val is %lld\n",sizeof(val));
                     if(sizeof(val) == 1){
                             cache_data[index_for_data] = cast_val_8;
+                            //printf("cast val 8 is %lld\n",cast_val_8);
                             if(write_policy == cache_write_through){
                                 //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", cast_val_8, mpa);
-                                if(mem->store(mpa++,cast_val_8)) return -1;
+                                if(mem->store(mpa,cast_val_8)) return -1;
                                 //u8 memVal;
                                 //mem->load(mpa - 1, memVal);
                                 //printf("In store_val, memory now has val %llx for mpa %llx\n",cast_val_8, mpa-1);
@@ -481,29 +485,29 @@ namespace riscv {
                     else if(ent->status == cache_line_must_evict){
                         //If the line is dirty, write its contents to mem
                         if(write_policy == cache_write_back && ent->state == cache_state_modified){
+                            ent->state = cache_state_shared;
                             if(allocate(ent->pcln << cache_line_shift, 'S', index_for_entry)) return -1;
-                            ent->state = cache_state_shared; 
                         }
                         //Set the LRU counter for the current line to be 0, and update all the other lines in the set.
                         ent->LRU_count = 0;
                         update_LRU_counters(ent->pcln & num_entries_mask, ent);
                         //Load the block from memory into the cache.
-                        if(allocate(mpa, 'L', index_for_entry)) return -1; 
                         ent->pcln = mpa >> cache_line_shift;
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_must_evict;
                         update_stats(0xC0000018);
                         update_stats(0xC0000020);
+                        if(allocate(mpa, 'L', index_for_entry)) return -1;
                     }
                     //No hit was found, but an empty line was found.
                     else if(ent->status == cache_line_empty){
-                        if(allocate(mpa,'L', index_for_entry)) return -1;
                         ent->pcln = mpa >> cache_line_shift;
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_empty;
                         update_stats(0xC0000018);
+                        if(allocate(mpa,'L', index_for_entry)) return -1;
                     }
                     //If write through policy is used and mem access is a store,
                     //store the contents of the mpa directly to cache and main mem.
