@@ -90,9 +90,6 @@ namespace riscv {
 	template <typename UX>
 	struct user_memory : memory_bus<UX>
 	{
-                //Variables for printing cache statistics. Remove when merging.
-		mpf_t hit_count, miss_count, load_count, store_count, hit_rate, num_evicted_lines;
-                
                 typedef std::shared_ptr<memory_segment<UX>> memory_segment_type;
 
 		std::vector<memory_segment_type> segments;

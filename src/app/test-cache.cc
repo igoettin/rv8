@@ -83,9 +83,7 @@ int main(int argc, char *argv[])
 {       
 
     
-    //mpf_t a;
-    //mpf_init(a);
-    //mpf_add_ui(a,a,1);
+    
 
     assert(page_shift == 12);
     assert(page_size == 4096);
@@ -111,7 +109,7 @@ int main(int argc, char *argv[])
     assert(cache_dm.last_access == cache_line_hit);
     //Check the same value was returned, and that the value exists in memory.
     assert(23 == y2);
-    assert(((cache_dm.lookup_cache_line(0x2ABCDE).first->ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
+    assert(((cache_dm.cache_key[cache_dm.lookup_cache_line(0x2ABCDE)].ppn << 12) + 0xCDE) == cache_dm.mem->segments.front()->mpa);
     assert(cache_dm.mem->segments.front()->mpa == mem->segments.front()->mpa);
     //Evict the same block with a new tag
     temp = 75;
@@ -123,7 +121,7 @@ int main(int argc, char *argv[])
     assert(z2 == 75);
     assert(z2 != 23);
     //Check the ppn was changed
-    assert(cache_dm.lookup_cache_line(0x2ACCDA).first->ppn != 0x2ab);
+    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x2ACCDA)].ppn != 0x2ab);
     //Load the previous tag back in, check that it still retains its old value from main memory
     cache_dm.access_cache(0x2abcde, 'L',z3);
     assert(cache_dm.last_access == cache_line_must_evict);
@@ -131,7 +129,7 @@ int main(int argc, char *argv[])
     assert(z3 == 23);
     assert(z3 == y2);
     //Lookup the 0x2accda mpa, check that the ppn there is for 0x2ab since we loaded it in.
-    assert(cache_dm.lookup_cache_line(0x2accda).first->ppn == 0x2ab);
+    assert(cache_dm.cache_key[cache_dm.lookup_cache_line(0x2accda)].ppn == 0x2ab);
     
     ////////////////////////
     //Direct mapped, write back tests

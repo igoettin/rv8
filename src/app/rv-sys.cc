@@ -144,7 +144,7 @@ struct rv_emulator
 	*/
 
 	static const uintmax_t default_ram_base = 0x80000000ULL; /* 2GiB */
-	static const uintmax_t default_ram_size = 0x40000000ULL; /* 1GiB */
+	static const uintmax_t default_ram_size = 0x40000028ULL; /* 1GiB */
 
 	elf_file elf;
 	std::string boot_filename;
@@ -341,7 +341,7 @@ struct rv_emulator
 
 			/* Add 1GB RAM to the mmu */
 			proc.mmu.mem->add_ram(default_ram_base, default_ram_size);
-
+                         
 			addr_t ram_base = proc.mmu.mem->mpa_to_uva(segment, default_ram_base);
 			if (segment == nullptr) {
 				panic("unable to locate ram");
@@ -383,7 +383,8 @@ struct rv_emulator
 
 			/* Add 1GB RAM to the mmu */
 			proc.mmu.mem->add_ram(default_ram_base, default_ram_size);
-		}
+
+                }
 		/* Initialize interpreter */
 		proc.init();
 		proc.reset(); /* Reset code calls mapped ROM image */

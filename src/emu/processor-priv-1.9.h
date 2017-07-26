@@ -429,11 +429,23 @@ core {
                                 printf("\n");
                                 printf("cache statistics\n");
                                 printf("~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-                                printf("Cache Hits: "); //std::cout << P::mmu.cache->hit_count << std::endl; //mpf_out_str(stdout,10,256,P::mmu.cache->hit_count); printf("\n");
-
-                                //printf("Amount of loads %lld\n",P::mmu.cache->load_count);
+                                u64 memVal; P::mmu.mem->load(0xC0000000,memVal);
+                                printf("Number of loads/reads from the cache: %lld\n", memVal);
+                                P::mmu.mem->load(0xC0000008,memVal);
+                                printf("Number of stores/writes to the cache: %lld\n", memVal);
+                                P::mmu.mem->load(0xC0000010,memVal);
+                                printf("Number of cache hits: %lld\n", memVal);
+                                P::mmu.mem->load(0xC0000018,memVal);
+                                printf("Number of cache misses: %lld\n", memVal);
+                                P::mmu.mem->load(0xC0000020,memVal);
+                                printf("Number of cache lines evicted: %lld\n", memVal);
+                                u64 hits, loads, stores;
+                                P::mmu.mem->load(0xC0000000, loads);
+                                P::mmu.mem->load(0xC0000008, stores);
+                                P::mmu.mem->load(0xC0000010, hits);
+                                printf("Overall hit rate for the cache: %lf\%%\n", ((double)(hits)) / (loads + stores) * 100); 
+                                printf("\n");
                         }
-
 		}
 
 		void wait_for_interrupt()

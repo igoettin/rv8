@@ -33,7 +33,7 @@ namespace riscv {
             cache_write_through = 0b0,
             cache_write_back    = 0b1,
         };
-
+        
 
 	/*
 	 * tagged_cache_entry
@@ -146,15 +146,8 @@ namespace riscv {
                 
                 //RAM size and base
                 uintmax_t default_ram_base = 0x80000000ULL;
-                uintmax_t default_ram_size = 0x40000000ULL;
+                uintmax_t default_ram_size = 0x40000028ULL;
 
-                //Statistics
-                mpf_t hit_count, 
-                      miss_count, 
-                      load_count, 
-                      store_count, 
-                      num_evicted_lines, 
-                      hit_rate;
 
                 tagged_cache(std::shared_ptr<memory_type> _mem, UX _write_policy = cache_write_back) : mem(_mem), write_policy(_write_policy) {
                     static_assert(page_shift == (cache_line_shift + num_entries_shift), "Page shift == cache_line_shift + num_entries_shift");
@@ -163,12 +156,6 @@ namespace riscv {
                         cache_key[i].LRU_count = 0;
                         cache_key[i].state = cache_state_shared; //Using shared state to represent non-dirty data.  
                     }
-                    mpf_init2(hit_count, 256);
-                    mpf_init2(miss_count, 256);
-                    mpf_init2(load_count, 256);
-                    mpf_init2(store_count, 256);
-                    mpf_init2(num_evicted_lines, 256);
-                    mpf_init2(hit_rate, 256);
                 }
                 tagged_cache(UX _write_policy = cache_write_back) : write_policy(_write_policy){
                     mem = std::make_shared<MEMORY>();
@@ -178,13 +165,8 @@ namespace riscv {
                         cache_key[i].LRU_count = 0;
                         cache_key[i].state = cache_state_shared;
                     }
-                    mpf_init2(hit_count, 256);
-                    mpf_init2(miss_count, 256);
-                    mpf_init2(load_count, 256);
-                    mpf_init2(store_count, 256);
-                    mpf_init2(num_evicted_lines, 256);
-                    mpf_init2(hit_rate, 256); 
                 }
+
                 /*
                 *Updates all cache entries' LRU counters in the set, except for the most recently accessed item
                 *The caller must set the most recently accessed LRU_counter to 0.
@@ -198,6 +180,24 @@ namespace riscv {
                     for(size_t i = 0; i < num_ways; i++)
                         if(&cache_key[index_for_set + i] != entry_to_skip)
                             cache_key[index_for_set + i].LRU_count++;
+                }
+                
+                /* 
+                *Updates the cache statistic at the given machine physical address.
+                *Current stats recorded are:
+                *load_count at 0xC0000000
+                *store_count at 0xC0000008
+                *hit_count at 0xC0000010
+                *miss_count at 0xC0000018
+                *num_evicted_lines at 0xC0000020
+                *
+                *@param mpa is the machine physical address for the stat that will be updated.
+                */
+                void update_stats(u64 mpa){
+                    u64 tempVal;
+                    mem->load(mpa,tempVal);
+                    tempVal += 1;
+                    mem->store(mpa, tempVal);
                 }
 
                 /*
@@ -230,17 +230,22 @@ namespace riscv {
                 
                 template<typename T> 
                 buserror_t load(UX mpa, T & val){
-                    mpf_add_ui(load_count,load_count,1);
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
                         return mem->load(mpa, val);
+                        
                     }
                     else {
+                        update_stats(0xC0000000);
                         //printf("Loading from cache at mpa: %llx...\n",mpa);
-                        return access_cache(mpa, 'L', val);
+                        //*(load_count) = 0;
+                        //u8 * ptr = (u8 *) 0x7ffeffffffff;
+                        //*ptr += 1;
+                        if(access_cache(mpa, 'L', val)) return -1;
                         /*
                         if(sizeof(val) == 1){
                             u8 memVal;
                             mem->load(mpa, memVal);
+                            
                             if(memVal != val){
                                 printf("MEM INCONSISTENT WITH CACHE\n");                            
                                 printf("Size of val input is %llx\n",sizeof(val));
@@ -278,19 +283,20 @@ namespace riscv {
                             printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
                             printf("Actual value in memory is %llx\n",memVal);
                         
-                       } */
-                        return 0;
+                       } 
+                        */
+                       return 0;
                     }
                     
                 }
                 
                 template<typename T>
                 buserror_t store(UX mpa, T val){
-                    mpf_add_ui(store_count,store_count,1);
                     if(mpa < default_ram_base || (mpa > (default_ram_base + default_ram_size))){
                         return mem->store(mpa,val);
                     }
                     else {
+                        update_stats(0xC0000008);
                         //printf("Storing val %llx from mpa %llx into cache",val,mpa);
                         return access_cache(mpa, 'S', val);
                         //printf("Done storing into cache\n");
@@ -335,7 +341,7 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_must_evict;
-                        mpf_add_ui(num_evicted_lines,num_evicted_lines,1);;
+                        update_stats(0xC0000020);
                     }
                     size_t shift_amt = 0;
                     u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
@@ -458,15 +464,17 @@ namespace riscv {
                 template<typename T>
                 buserror_t access_cache(UX mpa, u8 op, T & val){
                     //Lookup the mpa in the cache
-                    std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
-                    cache_entry_t * ent = result.first; UX index_for_entry = result.second;
+                    //std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
+                    //cache_entry_t * ent = result.first; UX index_for_entry = result.second;
+                    UX index_for_entry = lookup_cache_line(mpa);
+                    cache_entry_t * ent = &cache_key[index_for_entry];
                     UX index_for_data = ((index_for_entry << cache_line_shift) | (mpa & cache_line_offset_mask)); 
                     //Check for a hit
                     if(ent->status == cache_line_hit){
                         //Hit was found, set the status to filled. 
                         ent->status = cache_line_filled;
                         last_access = cache_line_hit;
-                        mpf_add_ui(hit_count,hit_count,1);
+                        update_stats(0xC0000010);
                     }
 
                     //No hit was found, evict a block
@@ -485,8 +493,8 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_must_evict;
-                        mpf_add_ui(miss_count,miss_count,1);
-                        mpf_add_ui(num_evicted_lines,num_evicted_lines,1);;
+                        update_stats(0xC0000018);
+                        update_stats(0xC0000020);
                     }
                     //No hit was found, but an empty line was found.
                     else if(ent->status == cache_line_empty){
@@ -495,7 +503,7 @@ namespace riscv {
                         ent->ppn = ent->pcln >> num_entries_shift;
                         ent->status = cache_line_filled;
                         last_access = cache_line_empty;
-                        mpf_add_ui(miss_count,miss_count,1);
+                        update_stats(0xC0000018);
                     }
                     //If write through policy is used and mem access is a store,
                     //store the contents of the mpa directly to cache and main mem.
@@ -529,16 +537,15 @@ namespace riscv {
                 * Performs a lookup in the cache to determine if there is a cache line corresponding to the provided mpa.
                 *
                 * @param mpa is the machine physical address that is being looked up.
-		* @return Returns a cache line entry that is marked as a hit, line to evict, or empty line.
-                * @return also returns the index in cache_key where that entry is found.
+		* @return the index for the cache_key array that can lookup the tagged_cache_entry for the given mpa.
                 *
                 */
-                std::pair<cache_entry_t*,UX> lookup_cache_line(UX mpa)
+                UX lookup_cache_line(UX mpa)
 		{
-                    //Variables to record entry, position, and misc data as we search the set
-                    cache_entry_t *empty_cache_line = nullptr, *line_to_evict = nullptr;
+                    //Variables to record entry, position, and misc data as we search the set 
                     UX emptyLineIndex = 0, maxLRUIndex = 0;
                     u8 found_empty_line = 0, maxLRU = 0;
+                    cache_entry_t * line_to_evict = nullptr;
 
                     //Variables to hold the entry and ppn
                     UX pcln = mpa >> cache_line_shift;
@@ -553,28 +560,27 @@ namespace riscv {
                         //Check if hit
                         if (ent->ppn == ppn) {
                             ent->status = cache_line_hit;
-                            return std::make_pair(ent,index);
+                            return index;
 			}
                         //Record an empty block if there is one available. This may be used if we cannot find a hit.
                         else if(!found_empty_line && ent->status == cache_line_empty){
                             found_empty_line = 1;
-                            empty_cache_line = ent;
                             emptyLineIndex = index;
                         }
                         //Record this block as a potential block to evict if it has a higher/equal LRU count. 
                         else if(ent->LRU_count >= maxLRU){
+                            line_to_evict = &cache_key[index];
                             maxLRU = ent->LRU_count;
-                            line_to_evict = ent;
                             maxLRUIndex = index;
                         }
 		    }
                     //Return the empty block if that's all that could be found
                     if(found_empty_line) 
-                        return std::make_pair(empty_cache_line,emptyLineIndex); 
+                        return emptyLineIndex; 
                     //Return the block we're going to evict if no hit or empty block was found.
                     else { 
                         line_to_evict->status = cache_line_must_evict;
-                        return std::make_pair(line_to_evict,maxLRUIndex);
+                        return maxLRUIndex;
                     }
 		}
 
