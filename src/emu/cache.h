@@ -221,7 +221,6 @@ namespace riscv {
                         else{
                             u8 loaded_val;
                             if(mem->load(mpa_masked,loaded_val)) return -1;
-                            //printf("loaded_val is %x\n");
                             cache_data[index_for_data] = loaded_val;
                         }
                     }
@@ -236,56 +235,8 @@ namespace riscv {
                     }
                     else {
                         update_stats(0xC0000000);
-                        //printf("Loading from cache at mpa: %llx...\n",mpa);
-                        //*(load_count) = 0;
-                        //u8 * ptr = (u8 *) 0x7ffeffffffff;
-                        //*ptr += 1;
                         if(access_cache(mpa, 'L', val)) return -1;
-                        /*
-                        if(sizeof(val) == 1){
-                            u8 memVal;
-                            mem->load(mpa, memVal);
-                            
-                            if(memVal != val){
-                                printf("MEM INCONSISTENT WITH CACHE\n");                            
-                                printf("Size of val input is %llx\n",sizeof(val));
-                            }
-                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
-                            printf("Actual value in memory is %llx\n",memVal);
-                        }
-                        else if(sizeof(val) == 2) {
-                            u16 memVal;
-                            mem->load(mpa, memVal);
-                            if(memVal != val){
-                                printf("MEM INCONSISTENT WITH CACHE\n");                            
-                                printf("Size of val input is %llx\n",sizeof(val));
-                            }
-                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
-                            printf("Actual value in memory is %llx\n",memVal);
-                        }
-                        else if(sizeof(val) == 4) {
-                            u32 memVal;
-                            mem->load(mpa, memVal);
-                            if(memVal != val){
-                                printf("MEM INCONSISTENT WITH CACHE\n");                            
-                                printf("Size of val input is %llx\n",sizeof(val));
-                            }
-                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
-                            printf("Actual value in memory is %llx\n",memVal);
-                        
-                        } else {
-                            u64 memVal;
-                            mem->load(mpa, memVal);
-                            if(memVal != val){
-                                printf("MEM INCONSISTENT WITH CACHE\n");                            
-                                printf("Size of val input is %llx\n",sizeof(val));
-                            }
-                            printf("Val loaded from cache was %llx for mpa: %llx\n",val,mpa);
-                            printf("Actual value in memory is %llx\n",memVal);
-                        
-                       } 
-                        */
-                       return 0;
+                        return 0;
                     }
                     
                 }
@@ -297,12 +248,8 @@ namespace riscv {
                     }
                     else {
                         update_stats(0xC0000008);
-                        //printf("Storing val %llx from mpa %llx into cache",val,mpa);
-                        return access_cache(mpa, 'S', val);
-                        //printf("Done storing into cache\n");
-                        //u64 memVal;
-                        //mem->load(mpa,memVal);
-                        //printf("After store, mpa %llx was updated with val %llx\n",mpa,memVal);
+                        if(access_cache(mpa, 'S', val)) return -1;
+                        return 0;
                     }
                     
                 }
@@ -316,13 +263,10 @@ namespace riscv {
                 */
                 template<typename T>
                 buserror_t load_val(UX mpa, UX index_for_data, T & val){
-                    //printf("index_for_data with added part: %llx index_for_data by itself %llx\n", index_for_data + (sizeof(val) - 1), index_for_data);
                     if(((index_for_data + (sizeof(val) - 1)) >> cache_line_shift) != (index_for_data >> cache_line_shift)){ 
                         UX index_for_entry = (index_for_data >> cache_line_shift) + 1;
                         UX amount_to_add = (cache_line_offset_mask - (mpa & cache_line_offset_mask)) + 1;
-                        //printf("amount to add is %llx\n",amount_to_add);
                         UX mpa_to_fill_bits = mpa + amount_to_add;
-                        //printf("mpa to fill bits is %llx\n",mpa_to_fill_bits);
                         cache_entry_t * ent = &cache_key[index_for_entry];
                         if(ent->status != cache_line_empty) {
                             //If the line is dirty, write its contents to mem
@@ -351,18 +295,14 @@ namespace riscv {
                     //so that the full value is created.
                     if(sizeof(val) == 1){
                         val = cache_data[index_for_data];
-                        //printf("val is %llx\n",val);
                     }
                     else if(sizeof(val) == 2) {
                         val = cast_val_16;
                         for(size_t i = 0; i < sizeof(val); i++){
                             cast_val_16 += ((u16)cache_data[index_for_data + i] << shift_amt);
                             shift_amt += 8;
-                            //printf("cast_val_16 is %llx\n",cast_val_16);
                         }
                         val = cast_val_16;
-                        //printf("Val is %llx\n",val);
-                        //printf("size of val is %llx\n",sizeof(val));
                     }
                     else if(sizeof(val) == 4){
                         for(size_t i = 0; i < sizeof(val); i++){
@@ -378,7 +318,6 @@ namespace riscv {
                         }
                         val = cast_val_64;
                     }
-                    //printf("val is %llx\n",val);
                     return 0;
                 }
                 
@@ -398,17 +337,10 @@ namespace riscv {
                     u64 cast_val_64 = *reinterpret_cast<u64*>(&val);
                     //Assign current_byte to val so that only a byte is retrieved,
                     //store that, then right shift val a byte amount to get the next byte. 
-                    //printf("size of val is %lld\n",sizeof(val));
                     if(sizeof(val) == 1){
                             cache_data[index_for_data] = cast_val_8;
-                            //printf("cast val 8 is %lld\n",cast_val_8);
                             if(write_policy == cache_write_through){
-                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", cast_val_8, mpa);
                                 if(mem->store(mpa,cast_val_8)) return -1;
-                                //u8 memVal;
-                                //mem->load(mpa - 1, memVal);
-                                //printf("In store_val, memory now has val %llx for mpa %llx\n",cast_val_8, mpa-1);
-
                             }
                     }
                     else if(sizeof(val) == 2)
@@ -416,11 +348,7 @@ namespace riscv {
                             u8 current_byte = cast_val_16;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 if(mem->store(mpa++,current_byte)) return -1;
-                                //u8 memVal;
-                                //mem->load(mpa - 1, memVal);
-                                //printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
                             }
                             cast_val_16 >>= 8;
                         }
@@ -429,11 +357,7 @@ namespace riscv {
                             u8 current_byte = cast_val_32;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 if(mem->store(mpa++,current_byte)) return -1;
-                                //u8 memVal;
-                                //mem->load(mpa - 1, memVal);
-                                //printf("In store_val, memory now has val %llx for mpa %llx\n",current_byte, mpa-1);
                             }
                             cast_val_32 >>= 8;
                         }
@@ -442,11 +366,7 @@ namespace riscv {
                             u8 current_byte = cast_val_64;
                             cache_data[index_for_data + i] = current_byte;
                             if(write_policy == cache_write_through){
-                                //printf("In store_val, storing 8 bit val %llx to mpa %llx\n", current_byte, mpa);
                                 if(mem->store(mpa++,current_byte)) return -1;
-                                //u64 memVal;
-                                //mem->load(mpa - 1, memVal);
-                                //printf("In store_val, memory now has val %llx for mpa %llx\n",memVal, mpa-1);
                             }
                             cast_val_64 >>= 8;
                         }
@@ -468,8 +388,6 @@ namespace riscv {
                 template<typename T>
                 buserror_t access_cache(UX mpa, u8 op, T & val){
                     //Lookup the mpa in the cache
-                    //std::pair<cache_entry_t *, UX> result = lookup_cache_line(mpa);
-                    //cache_entry_t * ent = result.first; UX index_for_entry = result.second;
                     UX index_for_entry = lookup_cache_line(mpa);
                     cache_entry_t * ent = &cache_key[index_for_entry];
                     UX index_for_data = ((index_for_entry << cache_line_shift) | (mpa & cache_line_offset_mask)); 
@@ -515,7 +433,6 @@ namespace riscv {
                         if(store_val(mpa,index_for_data,val)) return -1;
                         //u8 memVal;
                         //mem->load(mpa,memVal);
-                        //printf("After accessing cache and storing, val is %llx for mpa %llx\n",memVal,mpa);
                     }
                     //If write back policy is used and mem access is a store,
                     //set the cache state to modified (aka dirty) and store to cache only
@@ -525,13 +442,6 @@ namespace riscv {
                     }
                     //If loading, load from the cache_data array into val;
                     else{
-                       /* if(sizeof(val) == 2){
-                            u16 cast_val_16 = *reinterpret_cast<u16*>(&val);
-                            load_val(mpa,index_for_data,cast_val_16);
-                            val = cast_val_16;
-                            val &= 65535;
-                            printf("val at the end of it is %llx\n while cast_val-16 is %llx\n",val,cast_val_16);
-                        }*/
                         if(load_val(mpa,index_for_data,val)) return -1;
                     }
                     return 0;

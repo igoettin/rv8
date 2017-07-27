@@ -119,12 +119,10 @@ namespace riscv {
 			if (!mpa) return 0;
 
 			/* check execute permissions and fetch first 32 bits */
-                        //printf("Loading instruction_32....\n");
 			if (unlikely(fetch_access_fault(proc, proc.mode, tlb_ent) || cache->load(mpa, inst_32))) {
 				proc.raise(rv_cause_fault_fetch, pc);
 				return 0;
 			}
-                        //printf("Loaded instruction_32 %llx from mpa %llx\n", inst_32, mpa);
 			/* record pc histogram using machine physical address */
 			if (proc.log & proc_log_hist_pc) {
 				proc.histogram_add_pc(mpa);
@@ -139,7 +137,6 @@ namespace riscv {
 				pc_offset = 4;
 			} else if ((inst & 0b111111) == 0b011111) {
 				if (unlikely(cache->load(mpa + 4, inst_16))) {
-					//printf("Loaded instruction_16 %llx from mpa + 4 %llx\n", inst_16, mpa+4);
                                         proc.raise(rv_cause_fault_fetch, pc);
 					return 0;
 				}
@@ -147,7 +144,6 @@ namespace riscv {
 				pc_offset = 6;
 			} else if ((inst & 0b1111111) == 0b0111111) {
 				if (unlikely(cache->load(mpa + 4, inst_32))) {
-					//printf("Loaded instruction_32 %llx from mpa + 4 %llx\n", inst_32, mpa+4);
                                         proc.raise(rv_cause_fault_fetch, pc);
 					return 0;
 				}
@@ -179,22 +175,18 @@ namespace riscv {
 			/* TODO - plumb amo interface into the memory bus */
 
 			/* Check read permissions and perform load */
-                        //printf("Loading amo val1..");
 			if (unlikely(load_access_fault(proc, proc.mode, tlb_ent) || cache->load(mpa, val1))) {
 				proc.raise(rv_cause_fault_store, va);
 				return;
 			}
-                        //printf("Loaded amo val1 %llx from mpa %llx\n",val1,mpa);
 
 			/* execute atomic op */
 			val2 = amo_fn<UX>(a_op, val1, val2);
 
 			/* Check write permissions and perform store */
-                        //printf("Storing amo val2....\n");
 			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || cache->store(mpa, val2))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
-                        //printf("Stored amo val2 %llx from mpa %llx\n",val2,mpa);
 
 		}
 
@@ -215,12 +207,9 @@ namespace riscv {
 			if (!mpa) return;
 
 			/* check read permissions and perform load */
-                        //printf("Loading generic value...\n");
-			//printf("Before loading from memory, val is %llx\n",val);
                         if (unlikely(load_access_fault(proc, proc.mode, tlb_ent)|| cache->load(mpa, val))) {
 				proc.raise(rv_cause_fault_load, va);
 			}
-                        //printf("Loaded generic value %llx from mpa %llx\n", val, mpa);
 
 		}
 
@@ -240,12 +229,10 @@ namespace riscv {
 			addr_t mpa = translate_addr<P,op>(proc, va, tlb_ent);
 			if (!mpa) return;
 		
-                        //printf("Storing generic value...\n");
                         /* check write permissions and perform store */
 			if (unlikely(store_access_fault(proc, proc.mode, tlb_ent) || cache->store(mpa, val))) {
 				proc.raise(rv_cause_fault_store, va);
 			}
-                        //printf("Stored generic value %llx from mpa %llx\n",val,mpa);
 
 		}
 
@@ -371,11 +358,9 @@ namespace riscv {
 				pte_mpa = ppn + vpn * sizeof(pte_type);
                                 
 
-                                //printf("Loading the PTE from memory...\n");
 				/* load the PTE from memory */
 				if (unlikely(cache->load(pte_mpa, *(typename PTM::size_type*)&pte))) goto fault;
                                 
-                                //printf("Loading the PTE %llx from mem at pte_mpa %llx\n",*(typename PTM::size_type*)&pte,pte_mpa);
 
 
 				/* check if this is a pointer PTE */
@@ -403,7 +388,6 @@ namespace riscv {
 						pte.val.flags |= ad_flags;
 						/* update PTE (note this reall needs to be atomic) */
 						if (unlikely(cache->load(pte_mpa, *(typename PTM::size_type*)&pte))) goto fault;
-					        //printf("Updating PTE with a store of %llx with addr %llx\n",*(typename PTM::size_type*)&pte,pte_mpa);
 
                                         }
 
