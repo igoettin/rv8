@@ -226,7 +226,13 @@ namespace riscv {
                     }
                     return 0;
                 }
-                
+                /*
+                *Function used by the mmu to load from the cache.
+                *
+                *@param mpa is the machine physical address being loaded from
+                *@param val is the value that will be loaded to the mpa
+                *
+                */
                 template<typename T> 
                 buserror_t load(UX mpa, T & val){
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
@@ -240,7 +246,13 @@ namespace riscv {
                     }
                     
                 }
-                
+                /*
+                *Function used by the mmu to store to the cache.
+                *
+                *@param mpa is the machine physical address being stored to in memory.
+                *@param val is the value that will be stored at the mpa
+                *
+                */
                 template<typename T>
                 buserror_t store(UX mpa, T val){
                     if(mpa < default_ram_base || (mpa > (default_ram_base + default_ram_size))){
