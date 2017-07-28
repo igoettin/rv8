@@ -237,14 +237,12 @@ namespace riscv {
                 buserror_t load(UX mpa, T & val){
                     if((mpa < default_ram_base) || (mpa > (default_ram_base + default_ram_size))){
                         return mem->load(mpa, val);
-                        
                     }
                     else {
                         update_stats(0xC0000000);
                         if(access_cache(mpa, 'L', val)) return -1;
                         return 0;
                     }
-                    
                 }
                 /*
                 *Function used by the mmu to store to the cache.
@@ -263,7 +261,6 @@ namespace riscv {
                         if(access_cache(mpa, 'S', val)) return -1;
                         return 0;
                     }
-                    
                 }
                 
                 /*
